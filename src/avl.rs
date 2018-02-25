@@ -15,17 +15,17 @@ pub struct Node<K, V> {
 impl<K: Ord, V> Node<K, V> {
     pub unsafe fn node_next(mut node: Option<NonNull<Node<K, V>>>) -> Option<NonNull<Node<K, V>>> {
         match node {
-            None => {return None;},
+            None => { return None; }
             Some(ptr) => {
                 match ptr.as_ref().right {
                     None => {
-                        while true {
+                        loop {
                             let last = node;
                             node = node.unwrap().as_ref().parent;
-                            if node.is_none() {break;}
-                            if cmp_node_ptr(&node.unwrap().as_ref().left, &last) {break;}
+                            if node.is_none() { break; }
+                            if cmp_node_ptr(&node.unwrap().as_ref().left, &last) { break; }
                         }
-                    },
+                    }
                     Some(_) => {
                         node = ptr.as_ref().right;
                         while node.unwrap().as_ref().left.is_some() {
@@ -58,7 +58,6 @@ fn cmp_node_ptr<K, V>(a: &Option<NonNull<Node<K, V>>>, b: &Option<NonNull<Node<K
 
 
 impl<K: Ord, V> Tree<K, V> {
-
     unsafe fn avl_node_first(&self) -> Option<NonNull<Node<K, V>>> {
         let mut node = self.root;
         if node.is_none() {
@@ -158,19 +157,17 @@ impl<K: Ord, V> Tree<K, V> {
     pub unsafe fn avl_node_find(&mut self, what: &K) -> Option<NonNull<Node<K, V>>> {
         let mut node = self.root;
         let mut res_node = None;
-        unsafe {
-            while let Some(ptr) = node {
-                match what.cmp(&ptr.as_ref().key) {
-                    Ordering::Equal => {
-                        res_node = node;
-                        break;
-                    }
-                    Ordering::Less => {
-                        node = ptr.as_ref().left;
-                    }
-                    Ordering::Greater => {
-                        node = ptr.as_ref().right;
-                    }
+        while let Some(ptr) = node {
+            match what.cmp(&ptr.as_ref().key) {
+                Ordering::Equal => {
+                    res_node = node;
+                    break;
+                }
+                Ordering::Less => {
+                    node = ptr.as_ref().left;
+                }
+                Ordering::Greater => {
+                    node = ptr.as_ref().right;
                 }
             }
         }
@@ -256,8 +253,8 @@ impl<K: Ord, V> Tree<K, V> {
 
     unsafe fn _avl_node_height_update(node: Option<NonNull<Node<K, V>>>) {
         let mut node = node.unwrap();
-        let h0 = unsafe { Tree::avl_left_height(node) };
-        let h1 = unsafe { Tree::avl_right_height(node) };
+        let h0 = Tree::avl_left_height(node);
+        let h1 = Tree::avl_right_height(node);
         node.as_mut().height = max(h0, h1) + 1;
     }
 
@@ -317,7 +314,7 @@ impl<K: Ord, V> Tree<K, V> {
         }
     }
 
-    fn avl_bst_check(&self)-> bool{
+    fn avl_bst_check(&self) -> bool {
         unsafe {
             let mut node = self.avl_node_first();
             if node.is_none() {
@@ -346,8 +343,10 @@ impl<K, V> Drop for Tree<K, V> where K: Ord {
 
 mod test {
     extern crate rand;
+
     use avl::Tree;
     use std::cmp::Ordering;
+
     type DefaultType = Tree<i32, Option<char>>;
 
     #[test]
@@ -464,7 +463,6 @@ mod test {
             v[idx] = idx as i32;
             let pos = rand::random::<usize>() % (idx + 1);
             assert!(pos <= idx);
-            assert!(pos >= 0);
             v.swap(idx, pos);
         }
         unsafe {
