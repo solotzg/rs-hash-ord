@@ -1,0 +1,7 @@
+[package]
+name = "hash_avl"
+version = "0.1.0"
+authors = ["Tong Zhigao <solotzg@163.com>"]
+
+[dependencies]
+rand = "0.4.2"
