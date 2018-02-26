@@ -17,20 +17,39 @@ impl<K: Ord, V> Node<K, V> {
         match node {
             None => { return None; }
             Some(ptr) => {
-                match ptr.as_ref().right {
-                    None => {
-                        loop {
-                            let last = node;
-                            node = node.unwrap().as_ref().parent;
-                            if node.is_none() { break; }
-                            if cmp_node_ptr(&node.unwrap().as_ref().left, &last) { break; }
-                        }
+                if ptr.as_ref().right.is_none() {
+                    loop {
+                        let last = node;
+                        node = node.unwrap().as_ref().parent;
+                        if node.is_none() { break; }
+                        if cmp_node_ptr(&node.unwrap().as_ref().left, &last) { break; }
                     }
-                    Some(_) => {
-                        node = ptr.as_ref().right;
-                        while node.unwrap().as_ref().left.is_some() {
-                            node = node.unwrap().as_ref().left;
-                        }
+                } else {
+                    node = ptr.as_ref().right;
+                    while node.unwrap().as_ref().left.is_some() {
+                        node = node.unwrap().as_ref().left;
+                    }
+                }
+            }
+        }
+        node
+    }
+
+    pub unsafe fn node_prev(mut node: Option<NonNull<Node<K, V>>>) -> Option<NonNull<Node<K, V>>> {
+        match node {
+            None => { return None; }
+            Some(ptr) => {
+                if ptr.as_ref().left.is_none() {
+                    loop {
+                        let last = node;
+                        node = node.unwrap().as_ref().parent;
+                        if node.is_none() { break; }
+                        if cmp_node_ptr(&node.unwrap().as_ref().right, &last) { break; }
+                    }
+                } else {
+                    node = ptr.as_ref().left;
+                    while node.unwrap().as_ref().right.is_some() {
+                        node = node.unwrap().as_ref().right;
                     }
                 }
             }
@@ -41,6 +60,7 @@ impl<K: Ord, V> Node<K, V> {
 
 pub struct Tree<K: Ord, V> {
     root: Option<NonNull<Node<K, V>>>,
+    count: usize,
 }
 
 #[inline]
@@ -58,6 +78,10 @@ fn cmp_node_ptr<K, V>(a: &Option<NonNull<Node<K, V>>>, b: &Option<NonNull<Node<K
 
 
 impl<K: Ord, V> Tree<K, V> {
+    pub fn size(&self) -> usize {
+        self.count
+    }
+
     unsafe fn avl_node_first(&self) -> Option<NonNull<Node<K, V>>> {
         let mut node = self.root;
         if node.is_none() {
@@ -81,7 +105,7 @@ impl<K: Ord, V> Tree<K, V> {
     }
 
     fn new() -> Self {
-        Tree { root: None }
+        Tree { root: None, count: 0 }
     }
 
     #[inline]
@@ -132,6 +156,7 @@ impl<K: Ord, V> Tree<K, V> {
         match res {
             None => {
                 self.avl_node_post_insert(node_to_insert);
+                self.count += 1;
                 return None;
             }
             Some((duplicate, key, value)) => {
@@ -318,8 +343,10 @@ impl<K: Ord, V> Tree<K, V> {
         unsafe {
             let mut node = self.avl_node_first();
             if node.is_none() {
+                assert_eq!(self.size(), 0);
                 return true;
             }
+            let mut cnt = 1usize;
             let mut value = &((*node.unwrap().as_ptr()).key);
             node = Node::node_next(node);
             while node.is_some() {
@@ -329,7 +356,33 @@ impl<K: Ord, V> Tree<K, V> {
                 }
                 value = x;
                 node = Node::node_next(node);
+                cnt += 1;
             }
+            assert_eq!(cnt, self.count);
+            return true;
+        }
+    }
+
+    fn avl_bst_check_reverse(&self) -> bool {
+        unsafe {
+            let mut node = self.avl_node_last();
+            if node.is_none() {
+                assert_eq!(self.size(), 0);
+                return true;
+            }
+            let mut cnt = 1usize;
+            let mut value = &((*node.unwrap().as_ptr()).key);
+            node = Node::node_prev(node);
+            while node.is_some() {
+                let x = &((*node.unwrap().as_ptr()).key);
+                if x >= value {
+                    return false;
+                }
+                value = x;
+                node = Node::node_prev(node);
+                cnt += 1;
+            }
+            assert_eq!(cnt, self.count);
             return true;
         }
     }
@@ -467,9 +520,11 @@ mod test {
         }
         unsafe {
             let mut t = Tree::<i32, i32>::new();
-            for d in v {
-                t.avl_add_element(d, -d);
+            assert_eq!(t.size(), 0);
+            for d in &v {
+                t.avl_add_element(*d, -*d);
             }
+            assert_eq!(t.size(), v.len());
             assert_eq!(t.root.unwrap().as_ref().height, 12);
             let left = t.root.unwrap().as_ref().left;
             assert!(left.unwrap().as_ref().height <= 11);
@@ -479,6 +534,7 @@ mod test {
             assert!(right.unwrap().as_ref().height >= 10);
 
             assert!(t.avl_bst_check());
+            assert!(t.avl_bst_check_reverse());
         }
     }
 }
