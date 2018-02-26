@@ -58,7 +58,7 @@ impl<K: Ord, V> Node<K, V> {
     }
 }
 
-pub struct Tree<K: Ord, V> {
+pub struct Tree<K: Ord, V: Clone> {
     root: Option<NonNull<Node<K, V>>>,
     count: usize,
 }
@@ -77,7 +77,7 @@ fn cmp_node_ptr<K, V>(a: &Option<NonNull<Node<K, V>>>, b: &Option<NonNull<Node<K
 }
 
 
-impl<K: Ord, V> Tree<K, V> {
+impl<K: Ord, V: Clone> Tree<K, V> {
     pub fn size(&self) -> usize {
         self.count
     }
@@ -104,7 +104,7 @@ impl<K: Ord, V> Tree<K, V> {
         node
     }
 
-    fn new() -> Self {
+    pub fn new() -> Self {
         Tree { root: None, count: 0 }
     }
 
@@ -179,7 +179,7 @@ impl<K: Ord, V> Tree<K, V> {
 
 
     #[inline]
-    pub unsafe fn avl_node_find(&mut self, what: &K) -> Option<NonNull<Node<K, V>>> {
+    unsafe fn avl_node_find(&mut self, what: &K) -> Option<NonNull<Node<K, V>>> {
         let mut node = self.root;
         let mut res_node = None;
         while let Some(ptr) = node {
@@ -386,9 +386,107 @@ impl<K: Ord, V> Tree<K, V> {
             return true;
         }
     }
+
+    unsafe fn avl_tree_remove(&mut self, node: Option<NonNull<Node<K, V>>>) -> Option<NonNull<Node<K, V>>> {
+        if node.is_none() {
+            return None;
+        }
+        self.avl_node_erase(node);
+        self.count -= 1;
+        node
+    }
+
+    fn avl_tree_pop(&mut self, what: &K) -> Option<V> {
+        unsafe {
+            let node = self.avl_node_find(what);
+            match self.avl_tree_remove(node) {
+                None => None,
+                Some(x) => {
+                    let ptr = x.as_ptr();
+                    let res = (*ptr).value.clone();
+                    Box::from_raw(ptr);
+                    Some(res)
+                }
+            }
+        }
+    }
+
+    unsafe fn avl_node_erase(&mut self, mut node: Option<NonNull<Node<K, V>>>) {
+        let mut parent = None;
+        let ptr = node.unwrap();
+        if ptr.as_ref().left.is_some() && ptr.as_ref().right.is_some() {
+            let old = node;
+            node = node.unwrap().as_ref().right;
+            while let Some(left) = node.unwrap().as_ref().left {
+                node = Some(left);
+            }
+            let child = node.unwrap().as_ref().right;
+            parent = node.unwrap().as_ref().parent;
+            if let Some(mut x) = child {
+                x.as_mut().parent = parent;
+            }
+            self._avl_child_replace(node, child, parent);
+            if cmp_node_ptr(&node.unwrap().as_ref().parent, &old) {
+                parent = node;
+            }
+            {
+                let new_ptr = node.as_mut().unwrap().as_mut();
+                let old_ptr = old.as_ref().unwrap().as_ref();
+                new_ptr.left = old_ptr.left;
+                new_ptr.right = old_ptr.right;
+                new_ptr.parent = old_ptr.parent;
+                new_ptr.height = old_ptr.height;
+            }
+            self._avl_child_replace(old, node, old.unwrap().as_ref().parent);
+            old.unwrap().as_ref().left.unwrap().as_mut().parent = node;
+            if let Some(ref mut x) = old.unwrap().as_mut().right {
+                x.as_mut().parent = node;
+            }
+        } else {
+            let node_ptr = node.unwrap();
+            let child = if node_ptr.as_ref().left.is_none() {
+                node_ptr.as_ref().right
+            } else {
+                node_ptr.as_ref().left
+            };
+            parent = node_ptr.as_ref().parent;
+            self._avl_child_replace(node, child, parent);
+            if let Some(mut x) = child {
+                x.as_mut().parent = parent;
+            }
+        }
+        if parent.is_some() {
+            self._avl_node_rebalance(parent);
+        }
+    }
+
+    #[inline]
+    unsafe fn _avl_node_rebalance(&mut self, mut node: Option<NonNull<Node<K, V>>>) {
+        while node.is_some() {
+            let mut ptr = node.unwrap();
+            let h0 = Tree::avl_left_height(ptr);
+            let h1 = Tree::avl_right_height(ptr);
+            let diff = h0 - h1;
+            let height = max(h0, h1) + 1;
+            if ptr.as_ref().height != height {
+                ptr.as_mut().height = height;
+            } else if diff >= -1 && diff <= 1 {
+                break;
+            }
+            if diff <= -2 {
+                node = self._avl_node_fix_l(node);
+            } else if diff >= 2 {
+                node = self._avl_node_fix_r(node);
+            }
+            node = node.unwrap().as_ref().parent;
+        }
+    }
 }
 
-impl<K, V> Drop for Tree<K, V> where K: Ord {
+#[test]
+fn just_for_compile() {}
+
+impl<K, V> Drop for Tree<K, V> where K: Ord, V: Clone {
     fn drop(&mut self) {
         self.drop_all();
     }
@@ -400,7 +498,27 @@ mod test {
     use avl::Tree;
     use std::cmp::Ordering;
 
-    type DefaultType = Tree<i32, Option<char>>;
+    type DefaultType = Tree<i32, Option<i32>>;
+
+    #[test]
+    fn test_avl_erase() {
+        let test_num = 1000usize;
+        let mut t = default_build_avl(test_num);
+        for _ in 0..200 {
+            let x = (rand::random::<usize>() % test_num) as i32;
+            unsafe {
+                match t.avl_tree_pop(&x) {
+                    None => {},
+                    Some(res) => {
+                        assert_eq!(res.unwrap(), -x);
+                    }
+                }
+                assert!(t.avl_node_find(&x).is_none());
+            }
+        }
+        assert!(t.avl_bst_check());
+        assert!(t.avl_bst_check_reverse());
+    }
 
     #[test]
     fn test_avl_basic() {
@@ -503,28 +621,36 @@ mod test {
 
     #[test]
     fn test_avl_find() {
-        let mut t = DefaultType::new();
-        assert!(unsafe { t.avl_node_find(&1) }.is_none());
-        t.avl_add_element(1, None);
-        assert_eq!(unsafe { t.avl_node_find(&1) }.unwrap().as_ptr(), t.root.unwrap().as_ptr());
+        let mut t = default_build_avl(10);
+        assert!(unsafe { t.avl_node_find(&11) }.is_none());
+        t.avl_add_element(11, Some(2333333));
+        unsafe {
+            assert_eq!(t.avl_node_find(&11).unwrap().as_ref().value.unwrap(), 2333333);
+        }
     }
 
-    #[test]
-    fn test_avl_validate() {
-        let mut v = vec![0; 1000];
+    fn default_build_avl(n: usize) -> DefaultType {
+        let mut v = vec![0i32; n];
         for idx in 0..v.len() {
             v[idx] = idx as i32;
             let pos = rand::random::<usize>() % (idx + 1);
             assert!(pos <= idx);
             v.swap(idx, pos);
         }
+        let mut t = DefaultType::new();
+        assert_eq!(t.size(), 0);
+        for d in &v {
+            t.avl_add_element(*d, Some(-*d));
+        }
+        t
+    }
+
+    #[test]
+    fn test_avl_validate() {
         unsafe {
-            let mut t = Tree::<i32, i32>::new();
-            assert_eq!(t.size(), 0);
-            for d in &v {
-                t.avl_add_element(*d, -*d);
-            }
-            assert_eq!(t.size(), v.len());
+            let test_num = 1000usize;
+            let t = default_build_avl(test_num);
+            assert_eq!(t.size(), test_num);
             assert_eq!(t.root.unwrap().as_ref().height, 12);
             let left = t.root.unwrap().as_ref().left;
             assert!(left.unwrap().as_ref().height <= 11);
