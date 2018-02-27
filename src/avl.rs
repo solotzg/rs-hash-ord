@@ -696,7 +696,7 @@ pub mod test {
         }
     }
 
-    pub fn default_build_avl(n: usize) -> DefaultType {
+    pub fn default_make_avl_element(n: usize) -> Vec<i32> {
         let mut v = vec![0i32; n];
         for idx in 0..v.len() {
             v[idx] = idx as i32;
@@ -704,6 +704,11 @@ pub mod test {
             assert!(pos <= idx);
             v.swap(idx, pos);
         }
+        v
+    }
+
+    pub fn default_build_avl(n: usize) -> DefaultType {
+        let v = default_make_avl_element(n);
         let mut t = DefaultType::new();
         assert_eq!(t.size(), 0);
         for d in &v {
