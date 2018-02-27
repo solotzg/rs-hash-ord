@@ -5,3 +5,4 @@ authors = ["Tong Zhigao <solotzg@163.com>"]
 
 [dependencies]
 rand = "0.4.2"
+time = "0.1.39"

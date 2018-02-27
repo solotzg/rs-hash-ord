@@ -78,6 +78,13 @@ fn cmp_node_ptr<K, V>(a: &Option<NonNull<Node<K, V>>>, b: &Option<NonNull<Node<K
 
 
 impl<K, V> Tree<K, V> where K: Ord + Clone, V: Clone {
+    pub fn height(&self) -> i32 {
+        match self.root {
+            None => 0,
+            Some(ptr) => unsafe { ptr.as_ref() }.height
+        }
+    }
+
     pub fn size(&self) -> usize {
         self.count
     }
@@ -494,7 +501,7 @@ impl<K, V> Tree<K, V> where K: Ord + Clone, V: Clone {
         assert_eq!(self.count, 0);
     }
 
-    fn avl_tree_clear(&mut self) {
+    pub fn avl_tree_clear(&mut self) {
         let mut next = None;
         loop {
             let (node, _next) = unsafe { self.avl_node_drop(next) };

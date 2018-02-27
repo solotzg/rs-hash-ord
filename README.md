@@ -12,5 +12,11 @@ test bench_avl_build_find_pop ... bench:  78,761,362 ns/iter (+/- 4,114,177)
 test bench_avl_build_pop      ... bench:  57,745,992 ns/iter (+/- 5,958,457)
 test bench_avl_find           ... bench:   8,622,224 ns/iter (+/- 2,181,619)
 ```
-
+```
+size 10000000
+height 28
+build avl time PT13.256197600S 
+find avl time PT11.067222800S 
+clear avl time PT3.498083200S
+```
 So, next step, we need to reduce abstraction.
