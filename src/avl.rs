@@ -179,7 +179,7 @@ impl<K, V> Tree<K, V> where K: Ord + Clone, V: Clone {
 
 
     #[inline]
-    unsafe fn avl_node_find(&mut self, what: &K) -> Option<NonNull<Node<K, V>>> {
+    unsafe fn avl_node_find(&self, what: &K) -> Option<NonNull<Node<K, V>>> {
         let mut node = self.root;
         let mut res_node = None;
         while let Some(ptr) = node {
@@ -380,7 +380,7 @@ impl<K, V> Tree<K, V> where K: Ord + Clone, V: Clone {
         node
     }
 
-    fn avl_tree_pop(&mut self, what: &K) -> Option<V> {
+    pub fn avl_tree_pop(&mut self, what: &K) -> Option<V> {
         unsafe {
             let node = self.avl_node_find(what);
             match self.avl_tree_remove(node) {
@@ -392,6 +392,15 @@ impl<K, V> Tree<K, V> where K: Ord + Clone, V: Clone {
                     Some(res)
                 }
             }
+        }
+    }
+
+    pub fn avl_get(&self, what: &K) -> Option<&V> {
+        unsafe {
+            let node = self.avl_node_find(what);
+            node.map(|ptr| {
+                &(*ptr.as_ptr()).value
+            })
         }
     }
 
@@ -539,13 +548,13 @@ impl<K, V> Tree<K, V> where K: Ord + Clone, V: Clone {
 #[test]
 fn just_for_compile() {}
 
-impl<K, V> Drop for Tree<K, V> where K: Ord + Clone, V: Clone{
+impl<K, V> Drop for Tree<K, V> where K: Ord + Clone, V: Clone {
     fn drop(&mut self) {
         self.avl_tree_clear();
     }
 }
 
-mod test {
+pub mod test {
     extern crate rand;
 
     use avl::Tree;
@@ -687,7 +696,7 @@ mod test {
         }
     }
 
-    fn default_build_avl(n: usize) -> DefaultType {
+    pub fn default_build_avl(n: usize) -> DefaultType {
         let mut v = vec![0i32; n];
         for idx in 0..v.len() {
             v[idx] = idx as i32;
@@ -724,8 +733,8 @@ mod test {
 
     #[test]
     fn test_avl_clear_callback() {
-        use std::cell::{RefCell};
-        use std::rc::{Rc};
+        use std::cell::RefCell;
+        use std::rc::Rc;
         let test_num = 200usize;
         let mut t = default_build_avl(test_num);
         let map = Rc::new(RefCell::new(HashMap::new()));
