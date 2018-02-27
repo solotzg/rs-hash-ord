@@ -146,7 +146,7 @@ impl<K, V> Tree<K, V> where K: Ord + Clone, V: Clone {
     #[inline]
     pub fn avl_add_element(&mut self, key: K, value: V) -> bool {
         unsafe {
-            self.avl_add_element_with_duplicate(key, value).is_some()
+            self.avl_add_element_with_duplicate(key, value).is_none()
         }
     }
 
@@ -672,11 +672,9 @@ mod test {
     #[test]
     fn test_avl_duplicate() {
         let mut t = DefaultType::new();
-        let mut is_duplicate = t.avl_add_element(1, None);
-        assert!(!is_duplicate);
+        assert!(t.avl_add_element(1, None));
         assert!(unsafe { t.avl_node_find(&1) }.is_some());
-        is_duplicate = t.avl_add_element(1, None);
-        assert!(is_duplicate);
+        assert!(!t.avl_add_element(1, None));
     }
 
     #[test]
