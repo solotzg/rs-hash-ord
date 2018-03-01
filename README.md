@@ -20,3 +20,21 @@ find avl time PT11.067222800S
 clear avl time PT3.498083200S
 ```
 So, next step, we need to reduce abstraction.
+
+```
+avl tree
+size 10000000
+build avl time PT13.259994900S 
+count is 10000000
+find avl time PT11.078718500S 
+clear avl time PT3.333813300S 
+tol_time PT27.672526700S
+
+rbtree
+size 10000000
+build avl time PT12.929415100S 
+count is 10000000
+find avl time PT11.621891S 
+clear avl time PT3.370476200S 
+tol_time PT27.921782300S
+```
