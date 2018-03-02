@@ -3,7 +3,7 @@ extern crate time;
 extern crate rbtree;
 
 use hash_avl::avl::AVLTree as Tree;
-use hash_avl::avl::test::{default_make_avl_element};
+use hash_avl::avl::test::default_make_avl_element;
 
 fn main() {
     println!("avl tree");
@@ -31,7 +31,7 @@ fn main() {
     }
     let end = time::now();
     let duration = end - start;
-    println!("count is {}", count);
+    println!("contain count {}", count);
     println!("find avl time {} ", duration);
     tol_time = tol_time + duration;
     let start = time::now();
@@ -41,6 +41,8 @@ fn main() {
     println!("clear avl time {} ", duration);
     tol_time = tol_time + duration;
     println!("tol_time {}", tol_time);
+
+
     println!("\nrbtree");
     let mut tol_time = time::Duration::zero();
     let mut t = rbtree::RBTree::new();
@@ -64,7 +66,7 @@ fn main() {
     }
     let end = time::now();
     let duration = end - start;
-    println!("count is {}", count);
+    println!("contain count {}", count);
     println!("find avl time {} ", duration);
     tol_time = tol_time + duration;
     let start = time::now();

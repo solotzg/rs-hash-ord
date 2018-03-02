@@ -24,17 +24,17 @@ So, next step, we need to reduce abstraction.
 ```
 avl tree
 size 10000000
-build avl time PT13.259994900S 
-count is 10000000
-find avl time PT11.078718500S 
-clear avl time PT3.333813300S 
-tol_time PT27.672526700S
+build avl time PT13.673228400S 
+contain count 10000000
+find avl time PT11.502455600S 
+clear avl time PT3.465241200S 
+tol_time PT28.640925200S
 
 rbtree
 size 10000000
-build avl time PT12.929415100S 
-count is 10000000
-find avl time PT11.621891S 
-clear avl time PT3.370476200S 
-tol_time PT27.921782300S
+build avl time PT13.451483800S 
+contain count 10000000
+find avl time PT12.081983800S 
+clear avl time PT3.461229700S 
+tol_time PT28.994697300S
 ```

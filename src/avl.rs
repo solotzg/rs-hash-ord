@@ -156,7 +156,7 @@ impl<K, V> NodePtr<K, V> where K: Ord {
 
     #[inline]
     fn parent(&self) -> NodePtr<K, V> {
-        unsafe { (*self.0).parent.clone() }
+        unsafe { (*self.0).parent }
     }
 
     #[inline]
@@ -231,7 +231,7 @@ impl<K, V> AVLTree<K, V> where K: Ord + Clone {
         self.count
     }
 
-    unsafe fn first_node(&self) -> NodePtr<K, V> {
+    fn first_node(&self) -> NodePtr<K, V> {
         let mut ptr = self.root;
         if ptr.is_null() {
             return NodePtr::null();
@@ -242,7 +242,7 @@ impl<K, V> AVLTree<K, V> where K: Ord + Clone {
         ptr
     }
 
-    unsafe fn last_node_ptr(&self) -> NodePtr<K, V> {
+    fn last_node(&self) -> NodePtr<K, V> {
         let mut ptr = self.root;
         if ptr.is_null() {
             return NodePtr::null();
@@ -437,7 +437,7 @@ impl<K, V> AVLTree<K, V> where K: Ord + Clone {
 
     fn bst_check_reverse(&self) -> bool {
         unsafe {
-            let mut node = self.last_node_ptr();
+            let mut node = self.last_node();
             if node.is_null() {
                 assert_eq!(self.size(), 0);
                 return true;
@@ -496,7 +496,7 @@ impl<K, V> AVLTree<K, V> where K: Ord + Clone {
         }
     }
 
-    pub fn get_mut(&self, what: &K) -> Option<&mut V> {
+    pub fn get_mut(&mut self, what: &K) -> Option<&mut V> {
         unsafe {
             let node = self.find_node(what);
             if node.is_null() {
@@ -586,7 +586,6 @@ impl<K, V> AVLTree<K, V> where K: Ord + Clone {
         self.root = NodePtr::null();
         self.count = 0;
     }
-
 }
 
 #[test]
@@ -729,6 +728,9 @@ pub mod test {
             t.set(MyData { a: 2 }, None);
             assert_eq!(*t.root.key_ref(), MyData { a: 1 });
             assert_eq!(t.root.height(), 2);
+
+            *t.get_mut(&MyData { a: 1 }).unwrap() = Some(23333);
+            assert_eq!((*t.get_ref(&MyData { a: 1 }).unwrap()).unwrap(), 23333);
         }
     }
 
