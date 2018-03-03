@@ -1,40 +1,63 @@
 # rs_hash_avl
 
-It's so fucking difficult to complete avl without using raw pointer. We try to use raw pointer as little as possible, and the performance of branch `0.1.0` is blow 
+avl is not worse than brtree 
 
 ```
-Windows 10
-Intel(R) Core(TM) i5-4460  CPU @ 3.20GHz
+Linux version 4.4.0-1049-aws (buildd@lcy01-amd64-001) (gcc version 5.4.0 20160609 (Ubuntu 5.4.0-6ubuntu1~16.04.5) )
+Intel(R) Xeon(R) CPU E5-2676 v3 @ 2.40GHz
 ```
 ```
-test bench_avl_build          ... bench:  37,608,105 ns/iter (+/- 5,436,223)
-test bench_avl_build_find_pop ... bench:  78,761,362 ns/iter (+/- 4,114,177)
-test bench_avl_build_pop      ... bench:  57,745,992 ns/iter (+/- 5,958,457)
-test bench_avl_find           ... bench:   8,622,224 ns/iter (+/- 2,181,619)
-```
-```
-size 10000000
-height 28
-build avl time PT13.256197600S 
-find avl time PT11.067222800S 
-clear avl time PT3.498083200S
-```
-So, next step, we need to reduce abstraction.
+    Finished release [optimized] target(s) in 0.0 secs
+     Running `target/release/main`
 
-```
+avl tree
+size 100000
+build avl time PT0.028503527S 
+contain count 100000
+find avl time PT0.020674714S 
+clear avl time PT0.005049490S 
+tol_time PT0.054227731S
+
+rbtree
+size 100000
+build avl time PT0.028908981S 
+contain count 100000
+find avl time PT0.024804220S 
+clear avl time PT0.005598498S 
+tol_time PT0.059311699S
+--------------------------------
+
+avl tree
+size 1000000
+build avl time PT0.563494613S 
+contain count 1000000
+find avl time PT0.487795776S 
+clear avl time PT0.123542618S 
+tol_time PT1.174833007S
+
+rbtree
+size 1000000
+build avl time PT0.637215084S 
+contain count 1000000
+find avl time PT0.586499857S 
+clear avl time PT0.166939198S 
+tol_time PT1.390654139S
+--------------------------------
+
 avl tree
 size 10000000
-build avl time PT13.673228400S 
+build avl time PT11.550990767S 
 contain count 10000000
-find avl time PT11.502455600S 
-clear avl time PT3.465241200S 
-tol_time PT28.640925200S
+find avl time PT9.896446463S 
+clear avl time PT1.793976350S 
+tol_time PT23.241413580S
 
 rbtree
 size 10000000
-build avl time PT13.451483800S 
+build avl time PT12.740772577S 
 contain count 10000000
-find avl time PT12.081983800S 
-clear avl time PT3.461229700S 
-tol_time PT28.994697300S
+find avl time PT11.506824022S 
+clear avl time PT2.621726976S 
+tol_time PT26.869323575S
+--------------------------------
 ```
