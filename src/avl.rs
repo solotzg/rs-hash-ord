@@ -37,9 +37,40 @@ impl<K, V> AVLNode<K, V> where K: Ord {
 }
 
 impl<K, V> NodePtr<K, V> where K: Ord {
+
+    fn is_isomorphic(&self, node: NodePtr<K, V>) -> bool {
+        if self.is_null() && node.is_null() {
+            return true;
+        }
+        if self.is_null() || node.is_null() {
+            return false;
+        }
+        if self.height() != node.height() {
+            return false;
+        }
+        self.left().is_isomorphic(node.left()) && self.right().is_isomorphic(node.right())
+    }
+
+    fn deep_clone(node: NodePtr<K, V>, parent: NodePtr<K, V>) -> Self where K: Clone, V: Clone {
+        if node.is_null() {
+            return node;
+        }
+        let mut res = NodePtr::new(node.key_ref().clone(), node.value_ref().clone());
+        res.set_parent(parent);
+        res.set_left(NodePtr::deep_clone(node.left(), res));
+        res.set_right(NodePtr::deep_clone(node.right(), res));
+        res.set_height(node.height());
+        res
+    }
+
     #[inline]
     fn key_ref(&self) -> &K {
         unsafe { &(*self.0).key }
+    }
+
+    #[inline]
+    fn value_ref(&self) -> &V {
+        unsafe { &(*self.0).value }
     }
 
     #[inline]
@@ -257,6 +288,11 @@ impl<K, V> AVLTree<K, V> where K: Ord + Clone {
         AVLTree { root: NodePtr::null(), count: 0 }
     }
 
+    pub fn clone_from (&mut self, t: &AVLTree<K, V>) where V: Clone {
+        self.root = NodePtr::deep_clone(t.root, NodePtr::null());
+        self.count = t.count;
+    }
+
     #[inline]
     pub fn set(&mut self, key: K, value: V) {
         unsafe {
@@ -411,6 +447,13 @@ impl<K, V> AVLTree<K, V> where K: Ord + Clone {
         }
     }
 
+    fn is_isomorphic(&self, t: &AVLTree<K, V>) -> bool {
+        if self.size() != t.size() {
+            return false;
+        }
+        self.root.is_isomorphic(t.root)
+    }
+
     fn bst_check(&self) -> bool {
         unsafe {
             let mut node = self.first_node();
@@ -430,7 +473,7 @@ impl<K, V> AVLTree<K, V> where K: Ord + Clone {
                 node = node.next();
                 cnt += 1;
             }
-            assert_eq!(cnt, self.count);
+            assert_eq!(cnt, self.size());
             return true;
         }
     }
@@ -454,7 +497,7 @@ impl<K, V> AVLTree<K, V> where K: Ord + Clone {
                 node = node.prev();
                 cnt += 1;
             }
-            assert_eq!(cnt, self.count);
+            assert_eq!(cnt, self.size());
             return true;
         }
     }
@@ -599,10 +642,9 @@ impl<K, V> Drop for AVLTree<K, V> where K: Ord + Clone {
 
 impl<K, V> Clone for AVLTree<K, V> where K: Ord + Clone, V: Clone {
     fn clone(&self) -> Self {
-        unsafe {
-            let tree = AVLTree::new();
-            tree
-        }
+        let mut tree = AVLTree::new();
+        tree.clone_from(&self);
+        tree
     }
 }
 
@@ -629,8 +671,12 @@ pub mod test {
             t.set(2, None);
             assert_eq!(*t.root.key_ref(), 3);
             assert_eq!(t.root.height(), 2);
-            assert!(t.root.left().is_left_child());
-            assert!(t.root.right().is_null());
+            assert_eq!(*t.root.left().key_ref(), 2);
+
+            t.set(1, None);
+            assert_eq!(*t.root.key_ref(), 2);
+            assert_eq!(t.root.height(), 2);
+            assert_eq!(*t.root.left().key_ref(), 1);
         }
     }
 
@@ -721,7 +767,7 @@ pub mod test {
         }
 
         let mut t = AVLTree::<MyData, Option<i32>>::new();
-        unsafe {
+        {
             t.set(MyData { a: 1 }, None);
             assert_eq!(*t.root.key_ref(), MyData { a: 1 });
             assert_eq!(t.root.height(), 1);
@@ -739,9 +785,7 @@ pub mod test {
         let mut t = default_build_avl(1000);
         for num in 0..t.size() {
             let x = num as i32;
-            unsafe {
-                assert_eq!(*t.get_ref(&x).unwrap(), Some(-x));
-            }
+            assert_eq!(*t.get_ref(&x).unwrap(), Some(-x));
         }
     }
 
@@ -790,6 +834,14 @@ pub mod test {
         t.clear();
         assert!(t.empty());
         assert!(t.root.is_null());
+    }
+
+    #[test]
+    fn test_avl_clone() {
+        let test_num = 500usize;
+        let mut ta = default_build_avl(test_num);
+        let tb = ta.clone();
+        assert!(ta.is_isomorphic(&tb));
     }
 }
 
