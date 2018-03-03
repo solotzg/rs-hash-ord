@@ -5,9 +5,8 @@ extern crate rbtree;
 use hash_avl::avl::AVLTree as Tree;
 use hash_avl::avl::test::default_make_avl_element;
 
-fn main() {
-    println!("avl tree");
-    let n = 10_000_000;
+fn run(n: usize) {
+    println!("\navl tree");
     let mut tol_time = time::Duration::zero();
     let v = default_make_avl_element(n);
     let mut t = Tree::new();
@@ -76,4 +75,11 @@ fn main() {
     println!("clear avl time {} ", duration);
     tol_time = tol_time + duration;
     println!("tol_time {}", tol_time);
+    println!("--------------------------------");
+}
+
+fn main() {
+    run(100_000);
+    run(1000_000);
+    run(10_000_000);
 }
