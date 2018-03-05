@@ -1,15 +1,11 @@
-# rs_hash_avl
-
-avl is not worse than brtree 
-
+# Performance Competition
+AVL is not worse than RBTree 
+## Compare with RBTree
 ```
 Linux version 4.4.0-1049-aws (buildd@lcy01-amd64-001) (gcc version 5.4.0 20160609 (Ubuntu 5.4.0-6ubuntu1~16.04.5) )
 Intel(R) Xeon(R) CPU E5-2676 v3 @ 2.40GHz
 ```
 ```
-    Finished release [optimized] target(s) in 0.0 secs
-     Running `target/release/main`
-
 avl tree
 size 100000
 build avl time PT0.028503527S 
@@ -59,5 +55,33 @@ contain count 10000000
 find avl time PT11.506824022S 
 clear avl time PT2.621726976S 
 tol_time PT26.869323575S
+--------------------------------
+```
+## Compare with another implement of AVL
+```
+my avl tree
+build avl time PT0.525162393S 
+contain count 1000000
+find avl time PT0.463548624S 
+tol_time PT1.111170961S
+
+avl_tree 0.2.0
+build avl time PT0.858368285S 
+contain count 1000000
+find avl time PT0.472501388S 
+tol_time PT1.483857972S
+--------------------------------
+
+my avl tree
+build avl time PT12.050122632S 
+contain count 10000000
+find avl time PT10.213842381S 
+tol_time PT24.446940781S
+
+avl_tree 0.2.0
+build avl time PT16.647625118S 
+contain count 10000000
+find avl time PT10.369277327S 
+tol_time PT29.805170112S
 --------------------------------
 ```
