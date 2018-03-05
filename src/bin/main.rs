@@ -12,7 +12,7 @@ fn run(n: usize) {
     let mut t = Tree::new();
     let start = time::now();
     for d in &v {
-        t.set(*d, *d * 2);
+        t.insert(*d, *d * 2);
     }
     let end = time::now();
     let duration = end - start;

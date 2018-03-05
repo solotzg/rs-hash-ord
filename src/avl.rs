@@ -1,5 +1,9 @@
 use std::cmp::{Ordering, max};
 use std::ptr;
+use std::marker;
+use std::mem;
+use std::ops::Index;
+use std::iter::FromIterator;
 
 pub struct AVLNode<K, V> where K: Ord {
     left: NodePtr<K, V>,
@@ -37,7 +41,6 @@ impl<K, V> AVLNode<K, V> where K: Ord {
 }
 
 impl<K, V> NodePtr<K, V> where K: Ord {
-
     fn is_isomorphic(&self, node: NodePtr<K, V>) -> bool {
         if self.is_null() && node.is_null() {
             return true;
@@ -241,12 +244,12 @@ impl<K, V> NodePtr<K, V> where K: Ord {
     }
 }
 
-pub struct AVLTree<K, V> where K: Ord + Clone {
+pub struct AVLTree<K, V> where K: Ord {
     root: NodePtr<K, V>,
     count: usize,
 }
 
-impl<K, V> AVLTree<K, V> where K: Ord + Clone {
+impl<K, V> AVLTree<K, V> where K: Ord {
     #[inline]
     pub fn max_height(&self) -> i32 {
         self.root.height()
@@ -288,13 +291,33 @@ impl<K, V> AVLTree<K, V> where K: Ord + Clone {
         AVLTree { root: NodePtr::null(), count: 0 }
     }
 
-    pub fn clone_from (&mut self, t: &AVLTree<K, V>) where V: Clone {
+    pub fn clone_from(&mut self, t: &AVLTree<K, V>) where K: Clone, V: Clone {
         self.root = NodePtr::deep_clone(t.root, NodePtr::null());
         self.count = t.count;
     }
 
     #[inline]
-    pub fn set(&mut self, key: K, value: V) {
+    pub fn insert(&mut self, key: K, value: V) {
+        unsafe {
+            let (mut duplicate, parent, cmp_node_ref) = self.find_duplicate(&key);
+            if duplicate.is_null() {
+                self.link_post_insert(key, value, parent, cmp_node_ref);
+            } else {
+                duplicate.set_value(value);
+            }
+        }
+    }
+
+    #[inline]
+    fn link_post_insert(&mut self, key: K, value: V, parent: NodePtr<K, V>, cmp_node_ref: *mut NodePtr<K, V>) {
+        let new_node = NodePtr::new(key, value);
+        unsafe { AVLTree::link_node(new_node, parent, cmp_node_ref); }
+        unsafe { self.node_post_insert(new_node); }
+        self.count += 1;
+    }
+
+    #[inline]
+    fn find_duplicate (&mut self, key: &K) -> (NodePtr<K, V>, NodePtr<K, V>, *mut NodePtr<K, V>) {
         unsafe {
             let mut duplicate = NodePtr::null();
             let mut cmp_node_ref: *mut NodePtr<K, V> = &mut self.root;
@@ -314,14 +337,7 @@ impl<K, V> AVLTree<K, V> where K: Ord + Clone {
                     }
                 }
             }
-            if duplicate.is_null() {
-                let new_node = NodePtr::new(key, value);
-                AVLTree::link_node(new_node, parent, cmp_node_ref);
-                self.node_post_insert(new_node);
-                self.count += 1;
-            } else {
-                duplicate.set_value(value);
-            }
+            (duplicate, parent, cmp_node_ref)
         }
     }
 
@@ -629,12 +645,67 @@ impl<K, V> AVLTree<K, V> where K: Ord + Clone {
         self.root = NodePtr::null();
         self.count = 0;
     }
+
+    #[inline]
+    pub fn insert_or_replace(&mut self, key: K, mut value: V) -> Option<V> {
+        unsafe {
+            let (mut duplicate, parent, cmp_node_ref) = self.find_duplicate(&key);
+            if duplicate.is_null() {
+                self.link_post_insert(key, value, parent, cmp_node_ref);
+                return None
+            } else {
+                mem::swap(&mut value, &mut (*duplicate.0).value);
+                Some(value)
+            }
+        }
+    }
+
+    #[inline]
+    pub fn keys(&self) -> Keys<K, V> {
+        Keys { inner: self.iter() }
+    }
+
+    #[inline]
+    pub fn values(&self) -> Values<K, V> {
+        Values { inner: self.iter() }
+    }
+
+    #[inline]
+    pub fn values_mut(&mut self) -> ValuesMut<K, V> {
+        ValuesMut { inner: self.iter_mut() }
+    }
+
+    #[inline]
+    pub fn iter(&self) -> Iter<K, V> {
+        Iter {
+            head: self.first_node(),
+            tail: self.last_node(),
+            len: self.size(),
+            _marker: marker::PhantomData,
+        }
+    }
+
+    #[inline]
+    pub fn iter_mut(&mut self) -> IterMut<K, V> {
+        IterMut {
+            head: self.first_node(),
+            tail: self.last_node(),
+            len: self.size(),
+            _marker: marker::PhantomData,
+        }
+    }
+
+    #[inline]
+    unsafe fn set_empty(&mut self) {
+        self.root = NodePtr::null();
+        self.count = 0;
+    }
 }
 
 #[test]
 fn just_for_compile() {}
 
-impl<K, V> Drop for AVLTree<K, V> where K: Ord + Clone {
+impl<K, V> Drop for AVLTree<K, V> where K: Ord {
     fn drop(&mut self) {
         self.clear();
     }
@@ -645,6 +716,301 @@ impl<K, V> Clone for AVLTree<K, V> where K: Ord + Clone, V: Clone {
         let mut tree = AVLTree::new();
         tree.clone_from(&self);
         tree
+    }
+}
+
+impl<'a, K, V> Index<&'a K> for AVLTree<K, V> where K: Ord {
+    type Output = V;
+
+    #[inline]
+    fn index(&self, key: &K) -> &V {
+        self.get_ref(key).expect("no entry found for key")
+    }
+}
+
+impl<K: Ord, V> FromIterator<(K, V)> for AVLTree<K, V> {
+    fn from_iter<T: IntoIterator<Item=(K, V)>>(iter: T) -> AVLTree<K, V> {
+        let mut tree = AVLTree::new();
+        tree.extend(iter);
+        tree
+    }
+}
+
+impl<K: Ord, V> Extend<(K, V)> for AVLTree<K, V> {
+    fn extend<T: IntoIterator<Item=(K, V)>>(&mut self, iter: T) {
+        let iter = iter.into_iter();
+        for (k, v) in iter {
+            self.insert(k, v);
+        }
+    }
+}
+
+pub struct Keys<'a, K: Ord + 'a, V: 'a> {
+    inner: Iter<'a, K, V>,
+}
+
+impl<'a, K: Ord, V> Clone for Keys<'a, K, V> {
+    fn clone(&self) -> Keys<'a, K, V> {
+        Keys { inner: self.inner.clone() }
+    }
+}
+
+impl<'a, K: Ord, V> Iterator for Keys<'a, K, V> {
+    type Item = &'a K;
+
+    #[inline]
+    fn next(&mut self) -> Option<(&'a K)> {
+        self.inner.next().map(|(k, _)| k)
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+pub struct Values<'a, K: 'a + Ord, V: 'a> {
+    inner: Iter<'a, K, V>,
+}
+
+impl<'a, K: Ord, V> Clone for Values<'a, K, V> {
+    fn clone(&self) -> Values<'a, K, V> {
+        Values { inner: self.inner.clone() }
+    }
+}
+
+impl<'a, K: Ord, V> Iterator for Values<'a, K, V> {
+    type Item = &'a V;
+
+    #[inline]
+    fn next(&mut self) -> Option<(&'a V)> {
+        self.inner.next().map(|(_, v)| v)
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+pub struct ValuesMut<'a, K: 'a + Ord, V: 'a> {
+    inner: IterMut<'a, K, V>,
+}
+
+impl<'a, K: Ord, V> Clone for ValuesMut<'a, K, V> {
+    fn clone(&self) -> ValuesMut<'a, K, V> {
+        ValuesMut { inner: self.inner.clone() }
+    }
+}
+
+impl<'a, K: Ord, V> Iterator for ValuesMut<'a, K, V> {
+    type Item = &'a mut V;
+
+    #[inline]
+    fn next(&mut self) -> Option<(&'a mut V)> {
+        self.inner.next().map(|(_, v)| v)
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+/// Convert RBTree to iter, move out the tree.
+pub struct IntoIter<K: Ord, V> {
+    head: NodePtr<K, V>,
+    tail: NodePtr<K, V>,
+    len: usize,
+}
+
+// Drop all owned pointers if the collection is dropped
+impl<K: Ord, V> Drop for IntoIter<K, V> {
+    #[inline]
+    fn drop(&mut self) {
+        for (_, _) in self {}
+    }
+}
+
+impl<K: Ord, V> Iterator for IntoIter<K, V> {
+    type Item = (K, V);
+
+    fn next(&mut self) -> Option<(K, V)> {
+        if self.len == 0 {
+            return None;
+        }
+        if self.head.is_null() {
+            return None;
+        }
+        let head = self.head;
+        self.head = self.head.next();
+        let (k, v) = head.get_pair();
+        self.len -= 1;
+        Some((k, v))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.len, Some(self.len))
+    }
+}
+
+impl<K: Ord, V> DoubleEndedIterator for IntoIter<K, V> {
+    #[inline]
+    fn next_back(&mut self) -> Option<(K, V)> {
+        if self.len == 0 {
+            return None;
+        }
+        if self.tail.is_null() {
+            return None;
+        }
+        let tail = self.tail;
+        self.tail = self.tail.prev();
+        let (k, v) = tail.get_pair();
+        self.len -= 1;
+        Some((k, v))
+    }
+}
+
+pub struct Iter<'a, K: Ord + 'a, V: 'a> {
+    head: NodePtr<K, V>,
+    tail: NodePtr<K, V>,
+    len: usize,
+    _marker: marker::PhantomData<&'a ()>,
+}
+
+impl<'a, K: Ord + 'a, V: 'a> Clone for Iter<'a, K, V> {
+    fn clone(&self) -> Iter<'a, K, V> {
+        Iter {
+            head: self.head,
+            tail: self.tail,
+            len: self.len,
+            _marker: self._marker,
+        }
+    }
+}
+
+impl<'a, K: Ord + 'a, V: 'a> Iterator for Iter<'a, K, V> {
+    type Item = (&'a K, &'a V);
+
+    fn next(&mut self) -> Option<(&'a K, &'a V)> {
+        if self.len == 0 {
+            return None;
+        }
+
+        if self.head.is_null() {
+            return None;
+        }
+
+        let (k, v) = unsafe { (&(*self.head.0).key, &(*self.head.0).value) };
+        self.head = self.head.next();
+        self.len -= 1;
+        Some((k, v))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.len, Some(self.len))
+    }
+}
+
+impl<'a, K: Ord + 'a, V: 'a> DoubleEndedIterator for Iter<'a, K, V> {
+    #[inline]
+    fn next_back(&mut self) -> Option<(&'a K, &'a V)> {
+        // println!("len = {:?}", self.len);
+        if self.len == 0 {
+            return None;
+        }
+
+        if self.tail == self.head {
+            return None;
+        }
+
+        let (k, v) = unsafe { (&(*self.tail.0).key, &(*self.tail.0).value) };
+        self.tail = self.tail.prev();
+        self.len -= 1;
+        Some((k, v))
+    }
+}
+
+pub struct IterMut<'a, K: Ord + 'a, V: 'a> {
+    head: NodePtr<K, V>,
+    tail: NodePtr<K, V>,
+    len: usize,
+    _marker: marker::PhantomData<&'a ()>,
+}
+
+impl<'a, K: Ord + 'a, V: 'a> Clone for IterMut<'a, K, V> {
+    fn clone(&self) -> IterMut<'a, K, V> {
+        IterMut {
+            head: self.head,
+            tail: self.tail,
+            len: self.len,
+            _marker: self._marker,
+        }
+    }
+}
+
+impl<'a, K: Ord + 'a, V: 'a> Iterator for IterMut<'a, K, V> {
+    type Item = (&'a K, &'a mut V);
+
+    fn next(&mut self) -> Option<(&'a K, &'a mut V)> {
+        if self.len == 0 {
+            return None;
+        }
+
+        if self.head.is_null() {
+            return None;
+        }
+
+        let (k, v) = unsafe { (&(*self.head.0).key, &mut (*self.head.0).value) };
+        self.head = self.head.next();
+        self.len -= 1;
+        Some((k, v))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.len, Some(self.len))
+    }
+}
+
+impl<'a, K: Ord + 'a, V: 'a> DoubleEndedIterator for IterMut<'a, K, V> {
+    #[inline]
+    fn next_back(&mut self) -> Option<(&'a K, &'a mut V)> {
+        if self.len == 0 {
+            return None;
+        }
+
+        if self.tail == self.head {
+            return None;
+        }
+
+        let (k, v) = unsafe { (&(*self.tail.0).key, &mut (*self.tail.0).value) };
+        self.tail = self.tail.prev();
+        self.len -= 1;
+        Some((k, v))
+    }
+}
+
+impl<K: Ord, V> IntoIterator for AVLTree<K, V> {
+    type Item = (K, V);
+    type IntoIter = IntoIter<K, V>;
+
+    #[inline]
+    fn into_iter(mut self) -> IntoIter<K, V> {
+        let iter = if self.root.is_null() {
+            IntoIter {
+                head: NodePtr::null(),
+                tail: NodePtr::null(),
+                len: 0,
+            }
+        } else {
+            IntoIter {
+                head: self.first_node(),
+                tail: self.last_node(),
+                len: self.size(),
+            }
+        };
+        unsafe { self.set_empty(); }
+        iter
     }
 }
 
@@ -662,18 +1028,18 @@ pub mod test {
         let mut t = DefaultType::new();
         unsafe {
             assert!(t.root.is_null());
-            t.set(3, None);
+            t.insert(3, None);
             assert_eq!(*t.root.key_ref(), 3);
             assert_eq!(t.root.height(), 1);
             assert!(t.root.left().is_null());
             assert!(t.root.right().is_null());
 
-            t.set(2, None);
+            t.insert(2, None);
             assert_eq!(*t.root.key_ref(), 3);
             assert_eq!(t.root.height(), 2);
             assert_eq!(*t.root.left().key_ref(), 2);
 
-            t.set(1, None);
+            t.insert(1, None);
             assert_eq!(*t.root.key_ref(), 2);
             assert_eq!(t.root.height(), 2);
             assert_eq!(*t.root.left().key_ref(), 1);
@@ -707,13 +1073,13 @@ pub mod test {
     fn test_avl_rotate_right() {
         let mut t = DefaultType::new();
         unsafe {
-            t.set(3, None);
+            t.insert(3, None);
             assert_eq!(*t.root.key_ref(), 3);
             assert_eq!(t.root.height(), 1);
-            t.set(2, None);
+            t.insert(2, None);
             assert_eq!(*t.root.key_ref(), 3);
             assert_eq!(t.root.height(), 2);
-            t.set(1, None);
+            t.insert(1, None);
             assert_eq!(*t.root.key_ref(), 2);
             assert_eq!(t.root.height(), 2);
         }
@@ -723,13 +1089,13 @@ pub mod test {
     fn test_avl_rotate_left() {
         let mut t = DefaultType::new();
         unsafe {
-            t.set(1, None);
+            t.insert(1, None);
             assert_eq!(*t.root.key_ref(), 1);
             assert_eq!(t.root.height(), 1);
-            t.set(2, None);
+            t.insert(2, None);
             assert_eq!(*t.root.key_ref(), 1);
             assert_eq!(t.root.height(), 2);
-            t.set(3, None);
+            t.insert(3, None);
             assert_eq!(*t.root.key_ref(), 2);
             assert_eq!(t.root.height(), 2);
         }
@@ -768,10 +1134,10 @@ pub mod test {
 
         let mut t = AVLTree::<MyData, Option<i32>>::new();
         {
-            t.set(MyData { a: 1 }, None);
+            t.insert(MyData { a: 1 }, None);
             assert_eq!(*t.root.key_ref(), MyData { a: 1 });
             assert_eq!(t.root.height(), 1);
-            t.set(MyData { a: 2 }, None);
+            t.insert(MyData { a: 2 }, None);
             assert_eq!(*t.root.key_ref(), MyData { a: 1 });
             assert_eq!(t.root.height(), 2);
 
@@ -805,7 +1171,7 @@ pub mod test {
         let mut t = DefaultType::new();
         assert_eq!(t.size(), 0);
         for d in &v {
-            t.set(*d, Some(-*d));
+            t.insert(*d, Some(-*d));
         }
         t
     }

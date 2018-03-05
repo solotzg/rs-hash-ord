@@ -15,7 +15,7 @@ fn bench_avl_build(b: &mut test::Bencher) {
     b.iter(|| {
         let mut t = Tree::new();
         for num in &v {
-            t.set(*num, -(*num));
+            t.insert(*num, -(*num));
         }
     });
 }
@@ -36,7 +36,7 @@ fn bench_avl_build_pop(b: &mut test::Bencher) {
     b.iter(|| {
         let mut t = Tree::new();
         for num in &v {
-            t.set(*num, -(*num));
+            t.insert(*num, -(*num));
         }
         for num in &v {
             t.pop(num);
@@ -51,7 +51,7 @@ fn bench_avl_build_find_pop(b: &mut test::Bencher) {
     b.iter(|| {
         let mut t = Tree::new();
         for num in &v {
-            t.set(*num, -(*num));
+            t.insert(*num, -(*num));
         }
         for num in &v {
             t.get_ref(num).is_some();
