@@ -1204,5 +1204,19 @@ pub mod test {
             u += 1;
         }
     }
+
+    #[test]
+    fn test_avl_extend_iter() {
+        let mut a = AVLTree::new();
+        a.insert(2, 2);
+        let mut b = AVLTree::new();
+        b.insert(1, 1);
+        b.insert(3, 3);
+        a.extend(b.into_iter());
+        assert_eq!(a.size(), 3);
+        assert_eq!(a[&1], 1);
+        assert_eq!(a[&2], 2);
+        assert_eq!(a[&3], 3);
+    }
 }
 
