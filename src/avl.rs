@@ -58,7 +58,7 @@ impl<K, V> NodePtr<K, V> where K: Ord {
         if node.is_null() {
             return node;
         }
-        let mut res = NodePtr::new(node.key_ref().clone(), node.value_ref().clone());
+        let res = NodePtr::new(node.key_ref().clone(), node.value_ref().clone());
         res.set_parent(parent);
         res.set_left(NodePtr::deep_clone(node.left(), res));
         res.set_right(NodePtr::deep_clone(node.right(), res));
@@ -108,16 +108,6 @@ impl<K, V> NodePtr<K, V> where K: Ord {
             return 0;
         }
         unsafe { (*self.0).height }
-    }
-
-    #[inline]
-    fn is_left_child(&self) -> bool {
-        self.parent().left() == *self
-    }
-
-    #[inline]
-    fn is_right_child(&self) -> bool {
-        self.parent().right() == *self
     }
 
     #[inline]
@@ -257,7 +247,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
 
     #[inline]
     pub fn empty(&self) -> bool {
-        self.count == 0
+        self.size() == 0
     }
 
     #[inline]
@@ -298,13 +288,11 @@ impl<K, V> AVLTree<K, V> where K: Ord {
 
     #[inline]
     pub fn insert(&mut self, key: K, value: V) {
-        unsafe {
-            let (mut duplicate, parent, cmp_node_ref) = self.find_duplicate(&key);
-            if duplicate.is_null() {
-                self.link_post_insert(key, value, parent, cmp_node_ref);
-            } else {
-                duplicate.set_value(value);
-            }
+        let (mut duplicate, parent, cmp_node_ref) = self.find_duplicate(&key);
+        if duplicate.is_null() {
+            self.link_post_insert(key, value, parent, cmp_node_ref);
+        } else {
+            duplicate.set_value(value);
         }
     }
 
@@ -317,7 +305,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     }
 
     #[inline]
-    fn find_duplicate (&mut self, key: &K) -> (NodePtr<K, V>, NodePtr<K, V>, *mut NodePtr<K, V>) {
+    fn find_duplicate(&mut self, key: &K) -> (NodePtr<K, V>, NodePtr<K, V>, *mut NodePtr<K, V>) {
         unsafe {
             let mut duplicate = NodePtr::null();
             let mut cmp_node_ref: *mut NodePtr<K, V> = &mut self.root;
@@ -567,15 +555,14 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     }
 
     unsafe fn erase_node(&mut self, mut node: NodePtr<K, V>) {
-        let mut parent = NodePtr::null();
-        if !node.left().is_null() && !node.right().is_null() {
+        let parent = if !node.left().is_null() && !node.right().is_null() {
             let old = node;
             node = node.right();
             while !node.left().is_null() {
                 node = node.left();
             }
             let child = node.right();
-            parent = node.parent();
+            let mut parent = node.parent();
             if !child.is_null() {
                 child.set_parent(parent);
             }
@@ -592,18 +579,20 @@ impl<K, V> AVLTree<K, V> where K: Ord {
             if !old.right().is_null() {
                 old.right().set_parent(node);
             }
+            parent
         } else {
             let child = if node.left().is_null() {
                 node.right()
             } else {
                 node.left()
             };
-            parent = node.parent();
+            let parent = node.parent();
             self.child_replace(node, child, parent);
             if !child.is_null() {
                 child.set_parent(parent);
             }
-        }
+            parent
+        };
         if !parent.is_null() {
             self.rebalance_node(parent);
         }
@@ -649,10 +638,10 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     #[inline]
     pub fn insert_or_replace(&mut self, key: K, mut value: V) -> Option<V> {
         unsafe {
-            let (mut duplicate, parent, cmp_node_ref) = self.find_duplicate(&key);
+            let (duplicate, parent, cmp_node_ref) = self.find_duplicate(&key);
             if duplicate.is_null() {
                 self.link_post_insert(key, value, parent, cmp_node_ref);
-                return None
+                None
             } else {
                 mem::swap(&mut value, &mut (*duplicate.0).value);
                 Some(value)
@@ -817,14 +806,12 @@ impl<'a, K: Ord, V> Iterator for ValuesMut<'a, K, V> {
     }
 }
 
-/// Convert RBTree to iter, move out the tree.
 pub struct IntoIter<K: Ord, V> {
     head: NodePtr<K, V>,
     tail: NodePtr<K, V>,
     len: usize,
 }
 
-// Drop all owned pointers if the collection is dropped
 impl<K: Ord, V> Drop for IntoIter<K, V> {
     #[inline]
     fn drop(&mut self) {
@@ -1026,7 +1013,7 @@ pub mod test {
     #[test]
     fn test_avl_basic() {
         let mut t = DefaultType::new();
-        unsafe {
+        {
             assert!(t.root.is_null());
             t.insert(3, None);
             assert_eq!(*t.root.key_ref(), 3);
@@ -1072,7 +1059,7 @@ pub mod test {
     #[test]
     fn test_avl_rotate_right() {
         let mut t = DefaultType::new();
-        unsafe {
+        {
             t.insert(3, None);
             assert_eq!(*t.root.key_ref(), 3);
             assert_eq!(t.root.height(), 1);
@@ -1088,7 +1075,7 @@ pub mod test {
     #[test]
     fn test_avl_rotate_left() {
         let mut t = DefaultType::new();
-        unsafe {
+        {
             t.insert(1, None);
             assert_eq!(*t.root.key_ref(), 1);
             assert_eq!(t.root.height(), 1);
@@ -1148,7 +1135,7 @@ pub mod test {
 
     #[test]
     fn test_avl_find() {
-        let mut t = default_build_avl(1000);
+        let t = default_build_avl(1000);
         for num in 0..t.size() {
             let x = num as i32;
             assert_eq!(*t.get_ref(&x).unwrap(), Some(-x));
@@ -1205,7 +1192,7 @@ pub mod test {
     #[test]
     fn test_avl_clone() {
         let test_num = 500usize;
-        let mut ta = default_build_avl(test_num);
+        let ta = default_build_avl(test_num);
         let tb = ta.clone();
         assert!(ta.is_isomorphic(&tb));
     }
