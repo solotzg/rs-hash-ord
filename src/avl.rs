@@ -116,9 +116,9 @@ impl<K, V> NodePtr<K, V> where K: Ord {
             return NodePtr::null();
         }
         let mut node = *self;
-        if !self.right().is_null() {
+        if self.right().not_null() {
             node = node.right();
-            while !node.left().is_null() {
+            while node.left().not_null() {
                 node = node.left();
             }
         } else {
@@ -142,9 +142,9 @@ impl<K, V> NodePtr<K, V> where K: Ord {
             return NodePtr::null();
         }
         let mut node = *self;
-        if !node.left().is_null() {
+        if node.left().not_null() {
             node = node.left();
-            while !node.right().is_null() {
+            while node.right().not_null() {
                 node = node.right();
             }
         } else {
@@ -214,6 +214,11 @@ impl<K, V> NodePtr<K, V> where K: Ord {
     }
 
     #[inline]
+    fn not_null(&self) -> bool {
+        !self.0.is_null()
+    }
+
+    #[inline]
     fn set_height(&self, height: i32) {
         unsafe { (*self.0).height = height; }
     }
@@ -260,7 +265,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
         if ptr.is_null() {
             return NodePtr::null();
         }
-        while !ptr.left().is_null() {
+        while ptr.left().not_null() {
             ptr = ptr.left();
         }
         ptr
@@ -271,7 +276,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
         if ptr.is_null() {
             return NodePtr::null();
         }
-        while !ptr.right().is_null() {
+        while ptr.right().not_null() {
             ptr = ptr.right();
         }
         ptr
@@ -310,7 +315,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
             let mut duplicate = NodePtr::null();
             let mut cmp_node_ref: *mut NodePtr<K, V> = &mut self.root;
             let mut parent = NodePtr::null();
-            while !(*cmp_node_ref).is_null() {
+            while (*cmp_node_ref).not_null() {
                 parent = *cmp_node_ref;
                 match key.cmp(parent.key_ref()) {
                     Ordering::Less => {
@@ -333,7 +338,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     unsafe fn find_node(&self, what: &K) -> NodePtr<K, V> {
         let mut node = self.root;
         let mut res_node = NodePtr::null();
-        while !node.is_null() {
+        while node.not_null() {
             match what.cmp(&(*node.0).key) {
                 Ordering::Equal => {
                     res_node = node;
@@ -363,7 +368,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     unsafe fn node_post_insert(&mut self, mut node: NodePtr<K, V>) {
         node.set_height(1);
         node = node.parent();
-        while !node.is_null() {
+        while node.not_null() {
             let h0 = node.left_height();
             let h1 = node.right_height();
             let height = max(h1, h0) + 1;
@@ -415,7 +420,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
         let left = node.left();
         let parent = node.parent();
         node.set_left(left.right());
-        if !left.right().is_null() {
+        if left.right().not_null() {
             left.right().set_parent(node);
         }
         left.set_right(node);
@@ -429,7 +434,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
         let right = node.right();
         let parent = node.parent();
         node.set_right(right.left());
-        if !right.left().is_null() {
+        if right.left().not_null() {
             right.left().set_parent(node);
         }
         right.set_left(node);
@@ -459,51 +464,49 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     }
 
     fn bst_check(&self) -> bool {
-        unsafe {
-            let mut node = self.first_node();
-            if node.is_null() {
-                assert_eq!(self.size(), 0);
-                return true;
-            }
-            let mut cnt = 1usize;
-            let mut value = &(*node.0).key;
-            node = node.next();
-            while !node.is_null() {
-                let x = &(*node.0).key;
-                if *x <= *value {
-                    return false;
-                }
-                value = x;
-                node = node.next();
-                cnt += 1;
-            }
-            assert_eq!(cnt, self.size());
-            return true;
+        let mut iter = self.iter();
+        let first = iter.next();
+        if first.is_none() {
+            return iter.size_hint().0 == self.size() && self.root.is_null();
         }
+        let mut prev = first;
+        let mut cnt = 1usize;
+        loop {
+            match iter.next() {
+                None => { break; }
+                Some(x) => {
+                    cnt += 1;
+                    if *prev.unwrap().0 >= *x.0 {
+                        return false;
+                    }
+                    prev = Some(x);
+                }
+            }
+        }
+        cnt == self.size()
     }
 
     fn bst_check_reverse(&self) -> bool {
-        unsafe {
-            let mut node = self.last_node();
-            if node.is_null() {
-                assert_eq!(self.size(), 0);
-                return true;
-            }
-            let mut cnt = 1usize;
-            let mut value = &(*node.0).key;
-            node = node.prev();
-            while !node.is_null() {
-                let x = &(*node.0).key;
-                if *x >= *value {
-                    return false;
-                }
-                value = x;
-                node = node.prev();
-                cnt += 1;
-            }
-            assert_eq!(cnt, self.size());
-            return true;
+        let mut iter = self.iter();
+        let first = iter.next_back();
+        if first.is_none() {
+            return iter.size_hint().0 == self.size() && self.root.is_null();
         }
+        let mut prev = first;
+        let mut cnt = 1usize;
+        loop {
+            match iter.next_back() {
+                None => { break; }
+                Some(x) => {
+                    cnt += 1;
+                    if *prev.unwrap().0 <= *x.0 {
+                        return false;
+                    }
+                    prev = Some(x);
+                }
+            }
+        }
+        cnt == self.size()
     }
 
     unsafe fn remove_node(&mut self, node: NodePtr<K, V>) {
@@ -529,7 +532,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
 
     #[inline]
     pub fn contain(&self, what: &K) -> bool {
-        unsafe { !self.find_node(what).is_null() }
+        unsafe { self.find_node(what).not_null() }
     }
 
     pub fn get_ref(&self, what: &K) -> Option<&V> {
@@ -555,15 +558,15 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     }
 
     unsafe fn erase_node(&mut self, mut node: NodePtr<K, V>) {
-        let parent = if !node.left().is_null() && !node.right().is_null() {
+        let parent = if node.left().not_null() && node.right().not_null() {
             let old = node;
             node = node.right();
-            while !node.left().is_null() {
+            while node.left().not_null() {
                 node = node.left();
             }
             let child = node.right();
             let mut parent = node.parent();
-            if !child.is_null() {
+            if child.not_null() {
                 child.set_parent(parent);
             }
             self.child_replace(node, child, parent);
@@ -576,7 +579,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
             node.set_height(old.height());
             self.child_replace(old, node, old.parent());
             old.left().set_parent(node);
-            if !old.right().is_null() {
+            if old.right().not_null() {
                 old.right().set_parent(node);
             }
             parent
@@ -588,19 +591,19 @@ impl<K, V> AVLTree<K, V> where K: Ord {
             };
             let parent = node.parent();
             self.child_replace(node, child, parent);
-            if !child.is_null() {
+            if child.not_null() {
                 child.set_parent(parent);
             }
             parent
         };
-        if !parent.is_null() {
+        if parent.not_null() {
             self.rebalance_node(parent);
         }
     }
 
     #[inline]
     unsafe fn rebalance_node(&mut self, mut node: NodePtr<K, V>) {
-        while !node.is_null() {
+        while node.not_null() {
             let h0 = node.left_height();
             let h1 = node.right_height();
             let diff = h0 - h1;
@@ -621,7 +624,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
 
     #[inline]
     fn drop_node(node: NodePtr<K, V>) {
-        if !node.is_null() {
+        if node.not_null() {
             AVLTree::drop_node(node.left());
             AVLTree::drop_node(node.right());
             node.destroy();
@@ -906,11 +909,6 @@ impl<'a, K: Ord + 'a, V: 'a> DoubleEndedIterator for Iter<'a, K, V> {
         if self.len == 0 {
             return None;
         }
-
-        if self.tail == self.head {
-            return None;
-        }
-
         let (k, v) = unsafe { (&(*self.tail.0).key, &(*self.tail.0).value) };
         self.tail = self.tail.prev();
         self.len -= 1;
@@ -965,11 +963,6 @@ impl<'a, K: Ord + 'a, V: 'a> DoubleEndedIterator for IterMut<'a, K, V> {
         if self.len == 0 {
             return None;
         }
-
-        if self.tail == self.head {
-            return None;
-        }
-
         let (k, v) = unsafe { (&(*self.tail.0).key, &mut (*self.tail.0).value) };
         self.tail = self.tail.prev();
         self.len -= 1;
@@ -1195,6 +1188,21 @@ pub mod test {
         let ta = default_build_avl(test_num);
         let tb = ta.clone();
         assert!(ta.is_isomorphic(&tb));
+    }
+
+    #[test]
+    fn test_avl_iteration() {
+        let v = default_make_avl_element(100);
+        let mut t = AVLTree::new();
+        for x in &v {
+            t.insert(*x, -*x);
+        }
+        let mut u = 0;
+        for (k, v) in t.iter_mut() {
+            assert_eq!(*k, u);
+            assert_eq!(*v, -u);
+            u += 1;
+        }
     }
 }
 
