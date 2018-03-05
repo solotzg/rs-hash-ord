@@ -1218,5 +1218,35 @@ pub mod test {
         assert_eq!(a[&2], 2);
         assert_eq!(a[&3], 3);
     }
+
+    #[test]
+    fn test_avl_keys() {
+        let mut v = default_make_avl_element(100);
+        let mut t = AVLTree::new();
+        for x in &v {
+            t.insert(*x, -*x);
+        }
+        let keys: Vec<_> = t.keys().collect();
+        v.sort();
+        assert_eq!(v.len(), keys.len());
+        for i in 0..v.len() {
+            assert_eq!(v[i], *keys[i]);
+        }
+    }
+
+    #[test]
+    fn test_avl_values() {
+        let mut v = default_make_avl_element(100);
+        let mut t = AVLTree::new();
+        for x in &v {
+            t.insert(*x, -*x);
+        }
+        let values: Vec<_> = t.values().collect();
+        v.sort();
+        assert_eq!(values.len(), v.len());
+        for i in 0..v.len() {
+            assert_eq!(-v[i], *values[i]);
+        }
+    }
 }
 
