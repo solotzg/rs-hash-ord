@@ -77,6 +77,11 @@ impl<K, V> NodePtr<K, V> where K: Ord {
     }
 
     #[inline]
+    fn value_mut(&self) -> &mut V {
+        unsafe { &mut (*self.0).value }
+    }
+
+    #[inline]
     fn get_pair(self) -> (K, V) {
         unsafe { Box::from_raw(self.0).get_pair() }
     }
@@ -239,12 +244,84 @@ impl<K, V> NodePtr<K, V> where K: Ord {
     }
 }
 
+pub struct Cursors<'a, K, V> where K: Ord + 'a, V: 'a {
+    tree_mut: &'a mut AVLTree<K, V>,
+    pos: NodePtr<K, V>,
+}
+
+enum CursorsOperation {
+    NEXT,
+    PREV,
+}
+
+impl<'a, K, V> Cursors<'a, K, V> where K: Ord {
+    pub fn next(&mut self) {
+        self.pos = self.pos.next();
+    }
+
+    pub fn prev(&mut self) {
+        self.pos = self.pos.prev();
+    }
+
+    pub fn get_ref(&self) -> Option<(&K, &V)> {
+        if self.pos.not_null() {
+            Some((self.pos.key_ref(), self.pos.value_ref()))
+        } else {
+            None
+        }
+    }
+
+    pub fn get_mut(&mut self) -> Option<(&K, &mut V)> {
+        if self.pos.not_null() {
+            Some((self.pos.key_ref(), self.pos.value_mut()))
+        } else {
+            None
+        }
+    }
+
+    fn erase<F>(&mut self, f: F, op: CursorsOperation) where F: Fn(Option<(K, V)>) {
+        if self.pos.is_null() {
+            f(None);
+            return;
+        }
+        let node = self.pos;
+        match op {
+            CursorsOperation::NEXT => { self.next() }
+            CursorsOperation::PREV => { self.prev() }
+        }
+        unsafe {
+            self.tree_mut.remove_node(node);
+            f(Some(node.get_pair()));
+        }
+    }
+
+    pub fn erase_then_next<F>(&mut self, f: F) where F: Fn(Option<(K, V)>) {
+        self.erase(f, CursorsOperation::NEXT);
+    }
+
+    pub fn erase_then_prev<F>(&mut self, f: F) where F: Fn(Option<(K, V)>) {
+        self.erase(f, CursorsOperation::PREV);
+    }
+}
+
 pub struct AVLTree<K, V> where K: Ord {
     root: NodePtr<K, V>,
     count: usize,
 }
 
 impl<K, V> AVLTree<K, V> where K: Ord {
+    pub fn find_cursors<'a>(tree: &'a mut AVLTree<K, V>, what: &K) -> Cursors<'a, K, V> {
+        unsafe {
+            let node = tree.find_node(&what);
+            Cursors { tree_mut: tree, pos: node }
+        }
+    }
+
+    #[inline]
+    pub unsafe fn erase_cursors(&mut self, cursors: Cursors<K, V>) {
+        self.erase_node(cursors.pos);
+    }
+
     #[inline]
     pub fn max_height(&self) -> i32 {
         self.root.height()
@@ -558,6 +635,9 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     }
 
     unsafe fn erase_node(&mut self, mut node: NodePtr<K, V>) {
+        if node.is_null() {
+            return;
+        }
         let parent = if node.left().not_null() && node.right().not_null() {
             let old = node;
             node = node.right();
@@ -1246,6 +1326,51 @@ pub mod test {
         assert_eq!(values.len(), v.len());
         for i in 0..v.len() {
             assert_eq!(-v[i], *values[i]);
+        }
+    }
+
+    #[test]
+    fn test_avl_cursors() {
+        let mut t = default_build_avl(100);
+        {
+            let mut cursors = AVLTree::find_cursors(&mut t, &50);
+            assert_eq!(*cursors.get_ref().unwrap().0, 50);
+            for _ in 0..10 {
+                cursors.next();
+            }
+            assert_eq!(*cursors.get_ref().unwrap().0, 60);
+            for _ in 0..5 {
+                cursors.prev();
+            }
+            assert_eq!(*cursors.get_ref().unwrap().0, 55);
+            cursors.erase_then_next(
+                |x| {
+                    assert!(x.is_some());
+                    assert_eq!(x.unwrap().0, 55);
+                }
+            );
+            assert_eq!(*cursors.get_ref().unwrap().0, 56);
+            cursors.prev();
+            assert_eq!(*cursors.get_ref().unwrap().0, 54);
+            cursors.erase_then_prev(
+                |x| {
+                    assert!(x.is_some());
+                    assert_eq!(x.unwrap().0, 54);
+                }
+            );
+            assert_eq!(*cursors.get_ref().unwrap().0, 53);
+            cursors.next();
+            assert_eq!(*cursors.get_ref().unwrap().0, 56);
+
+            *cursors.get_mut().unwrap().1 = None;
+            assert_eq!(*cursors.get_ref().unwrap().1, None);
+
+            cursors.erase_then_prev(|_| {});
+        }
+        assert_eq!(t.size(), 97);
+        {
+            let cursors = AVLTree::find_cursors(&mut t, &55);
+            assert!(cursors.get_ref().is_none());
         }
     }
 }
