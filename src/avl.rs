@@ -5,7 +5,7 @@ use std::mem;
 use std::ops::Index;
 use std::iter::FromIterator;
 
-pub struct AVLNode<K, V> where K: Ord {
+pub struct AVLNode<K, V> {
     left: NodePtr<K, V>,
     right: NodePtr<K, V>,
     parent: NodePtr<K, V>,
@@ -15,32 +15,32 @@ pub struct AVLNode<K, V> where K: Ord {
 }
 
 #[derive(Debug)]
-struct NodePtr<K, V>(*mut AVLNode<K, V>) where K: Ord;
+pub struct NodePtr<K, V>(*mut AVLNode<K, V>);
 
-impl<K: Ord, V> PartialEq for NodePtr<K, V> {
+impl<K, V> PartialEq for NodePtr<K, V> {
     fn eq(&self, other: &NodePtr<K, V>) -> bool {
         self.0 == other.0
     }
 }
 
-impl<K: Ord, V> Eq for NodePtr<K, V> {}
+impl<K, V> Eq for NodePtr<K, V> {}
 
-impl<K, V> Clone for NodePtr<K, V> where K: Ord {
+impl<K, V> Clone for NodePtr<K, V> {
     fn clone(&self) -> NodePtr<K, V> {
         NodePtr(self.0)
     }
 }
 
-impl<K, V> Copy for NodePtr<K, V> where K: Ord {}
+impl<K, V> Copy for NodePtr<K, V> {}
 
-impl<K, V> AVLNode<K, V> where K: Ord {
+impl<K, V> AVLNode<K, V> {
     #[inline]
     fn get_pair(self) -> (K, V) {
         (self.key, self.value)
     }
 }
 
-impl<K, V> NodePtr<K, V> where K: Ord {
+impl<K, V> NodePtr<K, V> {
     fn is_isomorphic(&self, node: NodePtr<K, V>) -> bool {
         if self.is_null() && node.is_null() {
             return true;
