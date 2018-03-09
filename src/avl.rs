@@ -1,12 +1,9 @@
 use std::cmp::{Ordering, max};
-use std::ptr;
 use std::marker;
 use std::mem;
 use std::ops::Index;
 use std::iter::FromIterator;
-
-macro_rules! avl_offset {($TYPE: ty, $MEMBER: ident) => {&(*(0 as *const $TYPE)).$MEMBER as *const _ as isize}}
-macro_rules! avl_entry {($PTR: expr, $TYPE: ty, $MEMBER: ident) => {($PTR as *const _ as isize - unsafe { avl_offset!($TYPE, $MEMBER)}) as *mut $TYPE}}
+use avl_node::{AVLNodePtr, AVLNode, AVLNodePtrBase};
 
 pub struct DataNode<K, V> {
     key: K,
@@ -21,61 +18,27 @@ impl<K, V> DataNode<K, V> {
     }
 }
 
-pub struct AVLNode {
-    left: NodePtr,
-    right: NodePtr,
-    parent: NodePtr,
-    height: i32,
+trait DataOperation {
+    fn deep_clone<K, V>(node: AVLNodePtr, parent: AVLNodePtr) -> Self where K: Clone, V: Clone;
+    fn key_ref<'a, K, V>(self) -> &'a K;
+    fn value_ref<'a, K, V>(self) -> &'a V;
+    fn value_mut<'a, K, V>(self) -> &'a mut V;
+    fn get_pair<K, V>(self) -> (K, V);
+    fn destroy<K, V>(self);
+    fn new<K, V>(k: K, v: V) -> AVLNodePtr;
+    fn set_value<K, V>(self, value: V);
+    fn deref_mut<K, V>(self) -> *mut DataNode<K, V>;
 }
 
-#[derive(Debug)]
-pub struct NodePtr(*mut AVLNode);
-
-impl PartialEq for NodePtr {
-    #[inline]
-    fn eq(&self, other: &NodePtr) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl Eq for NodePtr {}
-
-impl Clone for NodePtr {
-    #[inline]
-    fn clone(&self) -> NodePtr {
-        NodePtr(self.0)
-    }
-}
-
-impl Copy for NodePtr {}
-
-impl NodePtr {
-    #[inline]
-    fn deref_mut<K, V>(&self) -> *mut DataNode<K, V> {
-        avl_entry!(self.0, DataNode<K, V>, node_ptr)
-    }
-
-    fn is_isomorphic(&self, node: NodePtr) -> bool {
-        if self.is_null() && node.is_null() {
-            return true;
-        }
-        if self.is_null() || node.is_null() {
-            return false;
-        }
-        if self.height() != node.height() {
-            return false;
-        }
-        self.left().is_isomorphic(node.left()) && self.right().is_isomorphic(node.right())
-    }
-
-    fn deep_clone<K, V>(node: NodePtr, parent: NodePtr) -> Self where K: Clone, V: Clone {
+impl DataOperation for AVLNodePtr {
+    fn deep_clone<K, V>(node: AVLNodePtr, parent: AVLNodePtr) -> AVLNodePtr where K: Clone, V: Clone {
         if node.is_null() {
             return node;
         }
-        let res = NodePtr::new(node.key_ref::<K, V>().clone(), node.value_ref::<K, V>().clone());
+        let res = AVLNodePtr::new(node.key_ref::<K, V>().clone(), node.value_ref::<K, V>().clone());
         res.set_parent(parent);
-        res.set_left(NodePtr::deep_clone::<K, V>(node.left(), res));
-        res.set_right(NodePtr::deep_clone::<K, V>(node.right(), res));
+        res.set_left(AVLNodePtr::deep_clone::<K, V>(node.left(), res));
+        res.set_right(AVLNodePtr::deep_clone::<K, V>(node.right(), res));
         res.set_height(node.height());
         res
     }
@@ -98,13 +61,13 @@ impl NodePtr {
     #[inline]
     fn get_pair<K, V>(self) -> (K, V) {
         unsafe {
-            let data_ptr = self.deref_mut();
+            let data_ptr = self.deref_mut::<K, V>();
             Box::from_raw(data_ptr).get_pair()
         }
     }
 
     #[inline]
-    fn destroy<K, V>(&self) {
+    fn destroy<K, V>(self) {
         unsafe {
             let data_ptr = self.deref_mut::<K, V>();
             Box::from_raw(data_ptr);
@@ -112,164 +75,29 @@ impl NodePtr {
     }
 
     #[inline]
-    fn height_update(&self) {
-        self.set_height(max(self.left_height(), self.right_height()) + 1);
-    }
-
-    fn new<K, V>(k: K, v: V) -> NodePtr {
+    fn new<K, V>(k: K, v: V) -> AVLNodePtr {
         let ptr = Box::into_raw(Box::new(DataNode::<K, V> {
             key: k,
             value: v,
-            node_ptr: AVLNode {
-                left: NodePtr(ptr::null_mut()),
-                right: NodePtr(ptr::null_mut()),
-                parent: NodePtr(ptr::null_mut()),
-                height: 0,
-            },
+            node_ptr: AVLNode::new(),
         }));
-        unsafe { NodePtr(&mut (*ptr).node_ptr as *mut AVLNode) }
+        unsafe { &mut (*ptr).node_ptr as AVLNodePtr }
     }
 
     #[inline]
-    fn height(&self) -> i32 {
-        if self.is_null() {
-            return 0;
-        }
-        unsafe { (*self.0).height }
-    }
-
-    #[inline]
-    fn next(&self) -> NodePtr {
-        if self.is_null() {
-            return NodePtr::null();
-        }
-        let mut node = *self;
-        if self.right().not_null() {
-            node = node.right();
-            while node.left().not_null() {
-                node = node.left();
-            }
-        } else {
-            loop {
-                let last = node;
-                node = node.parent();
-                if node.is_null() {
-                    break;
-                }
-                if node.left() == last {
-                    break;
-                }
-            }
-        }
-        node
-    }
-
-    #[inline]
-    fn prev(&self) -> NodePtr {
-        if self.is_null() {
-            return NodePtr::null();
-        }
-        let mut node = *self;
-        if node.left().not_null() {
-            node = node.left();
-            while node.right().not_null() {
-                node = node.right();
-            }
-        } else {
-            loop {
-                let last = node;
-                node = node.parent();
-                if node.is_null() {
-                    break;
-                }
-                if node.right() == last {
-                    break;
-                }
-            }
-        }
-        node
-    }
-
-    #[inline]
-    fn set_parent(&self, parent: NodePtr) {
-        unsafe { (*self.0).parent = parent }
-    }
-
-    #[inline]
-    fn set_left(&self, left: NodePtr) {
-        unsafe { (*self.0).left = left }
-    }
-
-    #[inline]
-    fn set_right(&self, right: NodePtr) {
-        unsafe { (*self.0).right = right }
-    }
-
-
-    #[inline]
-    fn parent(&self) -> NodePtr {
-        unsafe { (*self.0).parent }
-    }
-
-    #[inline]
-    fn left(&self) -> NodePtr {
-        unsafe { (*self.0).left }
-    }
-
-    #[inline]
-    fn right(&self) -> NodePtr {
-        unsafe { (*self.0).right }
-    }
-
-    #[inline]
-    fn left_mut(&self) -> *mut NodePtr {
-        unsafe { &mut (*self.0).left }
-    }
-
-    #[inline]
-    fn right_mut(&self) -> *mut NodePtr {
-        unsafe { &mut (*self.0).right }
-    }
-
-    #[inline]
-    fn null() -> NodePtr {
-        NodePtr(ptr::null_mut())
-    }
-
-    #[inline]
-    fn is_null(&self) -> bool {
-        self.0.is_null()
-    }
-
-    #[inline]
-    fn not_null(&self) -> bool {
-        !self.0.is_null()
-    }
-
-    #[inline]
-    fn set_height(&self, height: i32) {
-        unsafe { (*self.0).height = height; }
-    }
-
-    #[inline]
-    fn set_value<K, V>(&mut self, value: V) {
+    fn set_value<K, V>(self, value: V) {
         unsafe { (*self.deref_mut::<K, V>()).value = value; }
     }
 
     #[inline]
-    fn left_height(&self) -> i32 {
-        self.left().height()
-    }
-
-    #[inline]
-    fn right_height(&self) -> i32 {
-        self.right().height()
+    fn deref_mut<K, V>(self) -> *mut DataNode<K, V> {
+        avl_entry!(self, DataNode<K, V>, node_ptr)
     }
 }
 
 pub struct Cursors<'a, K, V> where K: Ord + 'a, V: 'a {
     tree_mut: &'a mut AVLTree<K, V>,
-    pos: NodePtr,
+    pos: AVLNodePtr,
 }
 
 enum CursorsOperation {
@@ -328,7 +156,7 @@ impl<'a, K, V> Cursors<'a, K, V> where K: Ord {
 }
 
 pub struct AVLTree<K, V> where K: Ord {
-    root: NodePtr,
+    root: AVLNodePtr,
     count: usize,
     _marker: marker::PhantomData<(K, V)>,
 }
@@ -363,43 +191,29 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     }
 
     #[inline]
-    fn first_node(&self) -> NodePtr {
-        let mut ptr = self.root;
-        if ptr.is_null() {
-            return NodePtr::null();
-        }
-        while ptr.left().not_null() {
-            ptr = ptr.left();
-        }
-        ptr
+    fn first_node(&self) -> AVLNodePtr {
+        self.root.first_node()
     }
 
     #[inline]
-    fn last_node(&self) -> NodePtr {
-        let mut ptr = self.root;
-        if ptr.is_null() {
-            return NodePtr::null();
-        }
-        while ptr.right().not_null() {
-            ptr = ptr.right();
-        }
-        ptr
+    fn last_node(&self) -> AVLNodePtr {
+        self.root.last_node()
     }
 
     #[inline]
     pub fn new() -> Self {
-        AVLTree { root: NodePtr::null(), count: 0, _marker: marker::PhantomData }
+        AVLTree { root: AVLNodePtr::null(), count: 0, _marker: marker::PhantomData }
     }
 
     #[inline]
     pub fn clone_from(&mut self, t: &AVLTree<K, V>) where K: Clone, V: Clone {
-        self.root = NodePtr::deep_clone::<K, V>(t.root, NodePtr::null());
+        self.root = AVLNodePtr::deep_clone::<K, V>(t.root, AVLNodePtr::null());
         self.count = t.count;
     }
 
     #[inline]
     pub fn insert(&mut self, key: K, value: V) {
-        let (mut duplicate, parent, cmp_node_ref) = self.find_duplicate(&key);
+        let (duplicate, parent, cmp_node_ref) = self.find_duplicate(&key);
         if duplicate.is_null() {
             self.link_post_insert(key, value, parent, cmp_node_ref);
         } else {
@@ -408,19 +222,19 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     }
 
     #[inline]
-    fn link_post_insert(&mut self, key: K, value: V, parent: NodePtr, cmp_node_ref: *mut NodePtr) {
-        let new_node = NodePtr::new(key, value);
+    fn link_post_insert(&mut self, key: K, value: V, parent: AVLNodePtr, cmp_node_ref: *mut AVLNodePtr) {
+        let new_node = AVLNodePtr::new(key, value);
         unsafe { AVLTree::<K, V>::link_node(new_node, parent, cmp_node_ref); }
         unsafe { self.node_post_insert(new_node); }
         self.count += 1;
     }
 
     #[inline]
-    fn find_duplicate(&mut self, key: &K) -> (NodePtr, NodePtr, *mut NodePtr) {
+    fn find_duplicate(&mut self, key: &K) -> (AVLNodePtr, AVLNodePtr, *mut AVLNodePtr) {
         unsafe {
-            let mut duplicate = NodePtr::null();
-            let mut cmp_node_ref: *mut NodePtr = &mut self.root;
-            let mut parent = NodePtr::null();
+            let mut duplicate = AVLNodePtr::null();
+            let mut cmp_node_ref: *mut AVLNodePtr = &mut self.root;
+            let mut parent = AVLNodePtr::null();
             while (*cmp_node_ref).not_null() {
                 parent = *cmp_node_ref;
                 match key.cmp(parent.key_ref::<K, V>()) {
@@ -441,9 +255,9 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     }
 
     #[inline]
-    unsafe fn find_node(&self, what: &K) -> NodePtr {
+    unsafe fn find_node(&self, what: &K) -> AVLNodePtr {
         let mut node = self.root;
-        let mut res_node = NodePtr::null();
+        let mut res_node = AVLNodePtr::null();
         while node.not_null() {
             match what.cmp(node.key_ref::<K, V>()) {
                 Ordering::Equal => {
@@ -462,16 +276,16 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     }
 
     #[inline]
-    unsafe fn link_node(new_node: NodePtr, parent: NodePtr, cmp_node: *mut NodePtr) {
+    unsafe fn link_node(new_node: AVLNodePtr, parent: AVLNodePtr, cmp_node: *mut AVLNodePtr) {
         new_node.set_parent(parent);
         new_node.set_height(0);
-        new_node.set_left(NodePtr::null());
-        new_node.set_right(NodePtr::null());
+        new_node.set_left(AVLNodePtr::null());
+        new_node.set_right(AVLNodePtr::null());
         *cmp_node = new_node;
     }
 
     #[inline]
-    unsafe fn node_post_insert(&mut self, mut node: NodePtr) {
+    unsafe fn node_post_insert(&mut self, mut node: AVLNodePtr) {
         node.set_height(1);
         node = node.parent();
         while node.not_null() {
@@ -493,7 +307,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     }
 
     #[inline]
-    unsafe fn node_fix_l(&mut self, mut node: NodePtr) -> NodePtr {
+    unsafe fn node_fix_l(&mut self, mut node: AVLNodePtr) -> AVLNodePtr {
         let right = node.right();
         let rh0 = right.left_height();
         let rh1 = right.right_height();
@@ -509,7 +323,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     }
 
     #[inline]
-    unsafe fn node_fix_r(&mut self, mut node: NodePtr) -> NodePtr {
+    unsafe fn node_fix_r(&mut self, mut node: AVLNodePtr) -> AVLNodePtr {
         let left = node.left();
         let rh0 = left.left_height();
         let rh1 = left.right_height();
@@ -525,7 +339,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     }
 
     #[inline]
-    unsafe fn node_rotate_right(&mut self, node: NodePtr) -> NodePtr {
+    unsafe fn node_rotate_right(&mut self, node: AVLNodePtr) -> AVLNodePtr {
         let left = node.left();
         let parent = node.parent();
         node.set_left(left.right());
@@ -540,7 +354,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     }
 
     #[inline]
-    unsafe fn node_rotate_left(&mut self, node: NodePtr) -> NodePtr {
+    unsafe fn node_rotate_left(&mut self, node: AVLNodePtr) -> AVLNodePtr {
         let right = node.right();
         let parent = node.parent();
         node.set_right(right.left());
@@ -555,7 +369,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     }
 
     #[inline]
-    unsafe fn child_replace(&mut self, old_node: NodePtr, new_node: NodePtr, parent: NodePtr) {
+    unsafe fn child_replace(&mut self, old_node: AVLNodePtr, new_node: AVLNodePtr, parent: AVLNodePtr) {
         if parent.is_null() {
             self.root = new_node;
         } else {
@@ -568,11 +382,11 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     }
 
     #[inline]
-    fn is_isomorphic(&self, t: &AVLTree<K, V>) -> bool {
+    fn isomorphic(&self, t: &AVLTree<K, V>) -> bool {
         if self.size() != t.size() {
             return false;
         }
-        self.root.is_isomorphic(t.root)
+        self.root.isomorphic(t.root)
     }
 
     fn bst_check(&self) -> bool {
@@ -622,7 +436,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     }
 
     #[inline]
-    unsafe fn remove_node(&mut self, node: NodePtr) {
+    unsafe fn remove_node(&mut self, node: AVLNodePtr) {
         if node.is_null() {
             return;
         }
@@ -674,7 +488,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     }
 
     #[inline]
-    unsafe fn erase_node(&mut self, mut node: NodePtr) {
+    unsafe fn erase_node(&mut self, mut node: AVLNodePtr) {
         if node.is_null() {
             return;
         }
@@ -722,7 +536,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     }
 
     #[inline]
-    unsafe fn rebalance_node(&mut self, mut node: NodePtr) {
+    unsafe fn rebalance_node(&mut self, mut node: AVLNodePtr) {
         while node.not_null() {
             let h0 = node.left_height();
             let h1 = node.right_height();
@@ -743,7 +557,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     }
 
     #[inline]
-    fn drop_node(node: NodePtr) {
+    fn drop_node(node: AVLNodePtr) {
         if node.not_null() {
             AVLTree::<K, V>::drop_node(node.left());
             AVLTree::<K, V>::drop_node(node.right());
@@ -754,7 +568,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     #[inline]
     pub fn clear(&mut self) {
         AVLTree::<K, V>::drop_node(self.root);
-        self.root = NodePtr::null();
+        self.root = AVLNodePtr::null();
         self.count = 0;
     }
 
@@ -807,7 +621,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
 
     #[inline]
     unsafe fn set_empty(&mut self) {
-        self.root = NodePtr::null();
+        self.root = AVLNodePtr::null();
         self.count = 0;
     }
 }
@@ -931,8 +745,8 @@ impl<'a, K: Ord, V> Iterator for ValuesMut<'a, K, V> {
 }
 
 pub struct IntoIter<K: Ord, V> {
-    head: NodePtr,
-    tail: NodePtr,
+    head: AVLNodePtr,
+    tail: AVLNodePtr,
     len: usize,
     _marker: marker::PhantomData<(K, V)>,
 }
@@ -984,8 +798,8 @@ impl<K: Ord, V> DoubleEndedIterator for IntoIter<K, V> {
 }
 
 pub struct Iter<'a, K: Ord + 'a, V: 'a> {
-    head: NodePtr,
-    tail: NodePtr,
+    head: AVLNodePtr,
+    tail: AVLNodePtr,
     len: usize,
     _marker: marker::PhantomData<&'a (K, V)>,
 }
@@ -1040,8 +854,8 @@ impl<'a, K: Ord + 'a, V: 'a> DoubleEndedIterator for Iter<'a, K, V> {
 }
 
 pub struct IterMut<'a, K: Ord + 'a, V: 'a> {
-    head: NodePtr,
-    tail: NodePtr,
+    head: AVLNodePtr,
+    tail: AVLNodePtr,
     len: usize,
     _marker: marker::PhantomData<&'a (K, V)>,
 }
@@ -1102,8 +916,8 @@ impl<K: Ord, V> IntoIterator for AVLTree<K, V> {
     fn into_iter(mut self) -> IntoIter<K, V> {
         let iter = if self.root.is_null() {
             IntoIter {
-                head: NodePtr::null(),
-                tail: NodePtr::null(),
+                head: AVLNodePtr::null(),
+                tail: AVLNodePtr::null(),
                 len: 0,
                 _marker: marker::PhantomData,
             }
@@ -1125,6 +939,8 @@ pub mod test {
 
     use avl::AVLTree;
     use std::cmp::Ordering;
+    use avl::DataOperation;
+    use avl_node::AVLNodePtrBase;
 
     type DefaultType = AVLTree<i32, Option<i32>>;
 
@@ -1312,7 +1128,7 @@ pub mod test {
         let test_num = 500usize;
         let ta = default_build_avl(test_num);
         let tb = ta.clone();
-        assert!(ta.is_isomorphic(&tb));
+        assert!(ta.isomorphic(&tb));
     }
 
     #[test]
