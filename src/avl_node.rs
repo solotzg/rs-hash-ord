@@ -8,9 +8,21 @@ pub struct AVLNode {
     height: i32,
 }
 
-impl AVLNode {
-    #[inline]
-    pub fn new() -> AVLNode {
+#[derive(Copy, Clone)]
+pub struct AVLRoot {
+    pub node: AVLNodePtr,
+}
+
+impl Default for AVLRoot {
+    fn default() -> Self {
+        AVLRoot{ node: ptr::null_mut() }
+    }
+}
+
+pub type AVLRootPtr = *mut AVLRoot;
+
+impl Default for AVLNode {
+    fn default() -> Self {
         AVLNode {
             left: ptr::null_mut(),
             right: ptr::null_mut(),
@@ -43,9 +55,12 @@ pub trait AVLNodePtrBase {
     fn right_height(self) -> i32;
     fn first_node(self) -> AVLNodePtr;
     fn last_node(self) -> AVLNodePtr;
+    fn init(self);
+    fn empty(self) -> bool;
+    fn reset(self, left: AVLNodePtr, right: AVLNodePtr, parent: AVLNodePtr, height: i32);
 }
 
-impl AVLNodePtrBase for AVLNodePtr {
+impl AVLNodePtrBase for *mut AVLNode {
     fn isomorphic(self, node: AVLNodePtr) -> bool {
         if self.is_null() && node.is_null() {
             return true;
@@ -212,4 +227,240 @@ impl AVLNodePtrBase for AVLNodePtr {
         }
         ptr
     }
+
+    #[inline]
+    fn init(self) {
+        self.set_parent(self)
+    }
+
+    #[inline]
+    fn empty(self) -> bool {
+        self.parent() == self
+    }
+
+    #[inline]
+    fn reset(self, left: AVLNodePtr, right: AVLNodePtr, parent: AVLNodePtr, height: i32) {
+        self.set_left(left);
+        self.set_right(right);
+        self.set_parent(parent);
+        self.set_height(height);
+    }
+}
+
+#[inline]
+pub unsafe fn erase_node(mut node: AVLNodePtr, root: AVLRootPtr) {
+    if node.is_null() {
+        return;
+    }
+    let parent = if node.left().not_null() && node.right().not_null() {
+        let old = node;
+        node = node.right();
+        while node.left().not_null() {
+            node = node.left();
+        }
+        let child = node.right();
+        let mut parent = node.parent();
+        if child.not_null() {
+            child.set_parent(parent);
+        }
+        child_replace(node, child, parent, root);
+        if node.parent() == old {
+            parent = node;
+        }
+        node.set_left(old.left());
+        node.set_right(old.right());
+        node.set_parent(old.parent());
+        node.set_height(old.height());
+        child_replace(old, node, old.parent(), root);
+        old.left().set_parent(node);
+        if old.right().not_null() {
+            old.right().set_parent(node);
+        }
+        parent
+    } else {
+        let child = if node.left().is_null() {
+            node.right()
+        } else {
+            node.left()
+        };
+        let parent = node.parent();
+        child_replace(node, child, parent, root);
+        if child.not_null() {
+            child.set_parent(parent);
+        }
+        parent
+    };
+    if parent.not_null() {
+        rebalance_node(parent, root);
+    }
+}
+
+#[inline]
+unsafe fn child_replace(old_node: AVLNodePtr, new_node: AVLNodePtr, parent: AVLNodePtr, root: AVLRootPtr) {
+    if parent.is_null() {
+        (*root).node = new_node;
+    } else {
+        if parent.left() == old_node {
+            parent.set_left(new_node);
+        } else {
+            parent.set_right(new_node);
+        }
+    }
+}
+
+#[inline]
+unsafe fn rebalance_node(mut node: AVLNodePtr, root: AVLRootPtr) {
+    while node.not_null() {
+        let h0 = node.left_height();
+        let h1 = node.right_height();
+        let diff = h0 - h1;
+        let height = max(h0, h1) + 1;
+        if node.height() != height {
+            break;
+        } else if diff >= -1 && diff <= 1 {
+            break;
+        }
+        if diff <= -2 {
+            node = node_fix_l(node, root);
+        } else if diff >= 2 {
+            node = node_fix_r(node, root);
+        }
+        node = node.parent();
+    }
+}
+
+#[inline]
+unsafe fn node_fix_l(mut node: AVLNodePtr, root: AVLRootPtr) -> AVLNodePtr {
+    let right = node.right();
+    let rh0 = right.left_height();
+    let rh1 = right.right_height();
+    if rh0 > rh1 {
+        let right = node_rotate_right(right, root);
+        right.right().height_update();
+        right.height_update();
+    }
+    node = node_rotate_left(node, root);
+    node.left().height_update();
+    node.height_update();
+    node
+}
+
+#[inline]
+pub unsafe fn node_fix_r(mut node: AVLNodePtr, root: AVLRootPtr) -> AVLNodePtr {
+    let left = node.left();
+    let rh0 = left.left_height();
+    let rh1 = left.right_height();
+    if rh0 < rh1 {
+        let left = node_rotate_left(left, root);
+        left.left().height_update();
+        left.height_update();
+    }
+    node = node_rotate_right(node, root);
+    node.right().height_update();
+    node.height_update();
+    node
+}
+
+#[inline]
+pub unsafe fn node_rotate_right(node: AVLNodePtr, root: AVLRootPtr) -> AVLNodePtr {
+    let left = node.left();
+    let parent = node.parent();
+    node.set_left(left.right());
+    if left.right().not_null() {
+        left.right().set_parent(node);
+    }
+    left.set_right(node);
+    left.set_parent(parent);
+    child_replace(node, left, parent, root);
+    node.set_parent(left);
+    left
+}
+
+#[inline]
+pub unsafe fn node_rotate_left(node: AVLNodePtr, root: AVLRootPtr) -> AVLNodePtr {
+    let right = node.right();
+    let parent = node.parent();
+    node.set_right(right.left());
+    if right.left().not_null() {
+        right.left().set_parent(node);
+    }
+    right.set_left(node);
+    right.set_parent(parent);
+    child_replace(node, right, parent, root);
+    node.set_parent(right);
+    right
+}
+
+#[inline]
+pub unsafe fn link_node(new_node: AVLNodePtr, parent: AVLNodePtr, link_node: *mut AVLNodePtr) {
+    new_node.set_parent(parent);
+    new_node.set_height(0);
+    new_node.set_left(AVLNodePtr::null());
+    new_node.set_right(AVLNodePtr::null());
+    *link_node = new_node;
+}
+
+#[inline]
+pub unsafe fn node_post_insert(mut node: AVLNodePtr, root: AVLRootPtr) {
+    node.set_height(1);
+    node = node.parent();
+    while node.not_null() {
+        let h0 = node.left_height();
+        let h1 = node.right_height();
+        let height = max(h1, h0) + 1;
+        let diff = h0 - h1;
+        if node.height() == height {
+            break;
+        }
+        node.set_height(height);
+        if diff <= -2 {
+            node = node_fix_l(node, root);
+        } else if diff >= 2 {
+            node = node_fix_r(node, root);
+        }
+        node = node.parent();
+    }
+}
+
+#[inline]
+pub unsafe fn avl_node_replace(tar: AVLNodePtr, new_node: AVLNodePtr, root: AVLRootPtr) {
+    let parent = tar.parent();
+    child_replace(tar, new_node, parent, root);
+    if tar.left().not_null() {tar.left().set_parent(new_node);}
+    if tar.right().not_null() {tar.right().set_parent(new_node);}
+    new_node.set_left(tar.left());
+    new_node.set_right(tar.right());
+    new_node.set_parent(tar.parent());
+    new_node.set_height(tar.height());
+}
+
+#[inline]
+pub unsafe fn avl_node_tear(root: AVLRootPtr, cur: *mut AVLNodePtr) -> AVLNodePtr {
+    if cur.is_null() {
+        if (*root).node.is_null() {
+            *cur = ptr::null_mut();
+            return ptr::null_mut();
+        }
+    }
+    let mut node = (*root).node;
+    loop {
+        if node.left().not_null() {
+            node = node.left();
+        } else if node.right().not_null() {
+            node = node.right();
+        } else { break; }
+    }
+    let parent = node.parent();
+    *cur = parent;
+    if parent.not_null() {
+        if parent.left() == node {
+            parent.set_left(ptr::null_mut());
+        } else {
+            parent.set_right(ptr::null_mut())
+        }
+        node.set_height(0);
+    } else {
+        (*root).node = ptr::null_mut();
+    }
+    node
 }

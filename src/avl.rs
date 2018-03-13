@@ -1,14 +1,16 @@
-use std::cmp::{Ordering, max};
+use std::cmp::Ordering;
 use std::marker;
 use std::mem;
 use std::ops::Index;
 use std::iter::FromIterator;
-use avl_node::{AVLNodePtr, AVLNode, AVLNodePtrBase};
+use avl_node::{AVLNodePtr, AVLNode, AVLNodePtrBase, AVLRoot, AVLRootPtr};
+use avl_node;
+use std::ptr;
 
 pub struct DataNode<K, V> {
+    node_ptr: AVLNode,
     key: K,
     value: V,
-    node_ptr: AVLNode,
 }
 
 impl<K, V> DataNode<K, V> {
@@ -18,8 +20,8 @@ impl<K, V> DataNode<K, V> {
     }
 }
 
-trait DataOperation {
-    fn deep_clone<K, V>(node: AVLNodePtr, parent: AVLNodePtr) -> Self where K: Clone, V: Clone;
+trait AVLDataNodeOperation {
+    fn deep_clone<K, V>(node: AVLNodePtr, parent: AVLNodePtr) -> AVLNodePtr where K: Clone, V: Clone;
     fn key_ref<'a, K, V>(self) -> &'a K;
     fn value_ref<'a, K, V>(self) -> &'a V;
     fn value_mut<'a, K, V>(self) -> &'a mut V;
@@ -27,10 +29,10 @@ trait DataOperation {
     fn destroy<K, V>(self);
     fn new<K, V>(k: K, v: V) -> AVLNodePtr;
     fn set_value<K, V>(self, value: V);
-    fn deref_mut<K, V>(self) -> *mut DataNode<K, V>;
+    fn avl_data_node_deref_mut<K, V>(self) -> *mut DataNode<K, V>;
 }
 
-impl DataOperation for AVLNodePtr {
+impl AVLDataNodeOperation for *mut AVLNode {
     fn deep_clone<K, V>(node: AVLNodePtr, parent: AVLNodePtr) -> AVLNodePtr where K: Clone, V: Clone {
         if node.is_null() {
             return node;
@@ -45,23 +47,23 @@ impl DataOperation for AVLNodePtr {
 
     #[inline]
     fn key_ref<'a, K, V>(self) -> &'a K {
-        unsafe { &(*self.deref_mut::<K, V>()).key }
+        unsafe { &(*self.avl_data_node_deref_mut::<K, V>()).key }
     }
 
     #[inline]
     fn value_ref<'a, K, V>(self) -> &'a V {
-        unsafe { &(*self.deref_mut::<K, V>()).value }
+        unsafe { &(*self.avl_data_node_deref_mut::<K, V>()).value }
     }
 
     #[inline]
     fn value_mut<'a, K, V>(self) -> &'a mut V {
-        unsafe { &mut (*self.deref_mut::<K, V>()).value }
+        unsafe { &mut (*self.avl_data_node_deref_mut::<K, V>()).value }
     }
 
     #[inline]
     fn get_pair<K, V>(self) -> (K, V) {
         unsafe {
-            let data_ptr = self.deref_mut::<K, V>();
+            let data_ptr = self.avl_data_node_deref_mut::<K, V>();
             Box::from_raw(data_ptr).get_pair()
         }
     }
@@ -69,7 +71,7 @@ impl DataOperation for AVLNodePtr {
     #[inline]
     fn destroy<K, V>(self) {
         unsafe {
-            let data_ptr = self.deref_mut::<K, V>();
+            let data_ptr = self.avl_data_node_deref_mut::<K, V>();
             Box::from_raw(data_ptr);
         }
     }
@@ -79,19 +81,19 @@ impl DataOperation for AVLNodePtr {
         let ptr = Box::into_raw(Box::new(DataNode::<K, V> {
             key: k,
             value: v,
-            node_ptr: AVLNode::new(),
+            node_ptr: AVLNode::default(),
         }));
         unsafe { &mut (*ptr).node_ptr as AVLNodePtr }
     }
 
     #[inline]
     fn set_value<K, V>(self, value: V) {
-        unsafe { (*self.deref_mut::<K, V>()).value = value; }
+        unsafe { (*self.avl_data_node_deref_mut::<K, V>()).value = value; }
     }
 
     #[inline]
-    fn deref_mut<K, V>(self) -> *mut DataNode<K, V> {
-        avl_entry!(self, DataNode<K, V>, node_ptr)
+    fn avl_data_node_deref_mut<K, V>(self) -> *mut DataNode<K, V> {
+        container_of!(self, DataNode<K, V>, node_ptr)
     }
 }
 
@@ -156,7 +158,7 @@ impl<'a, K, V> Cursors<'a, K, V> where K: Ord {
 }
 
 pub struct AVLTree<K, V> where K: Ord {
-    root: AVLNodePtr,
+    root: AVLRoot,
     count: usize,
     _marker: marker::PhantomData<(K, V)>,
 }
@@ -171,13 +173,8 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     }
 
     #[inline]
-    pub unsafe fn erase_cursors(&mut self, cursors: Cursors<K, V>) {
-        self.erase_node(cursors.pos);
-    }
-
-    #[inline]
     pub fn max_height(&self) -> i32 {
-        self.root.height()
+        self.root.node.height()
     }
 
     #[inline]
@@ -192,22 +189,22 @@ impl<K, V> AVLTree<K, V> where K: Ord {
 
     #[inline]
     fn first_node(&self) -> AVLNodePtr {
-        self.root.first_node()
+        self.root.node.first_node()
     }
 
     #[inline]
     fn last_node(&self) -> AVLNodePtr {
-        self.root.last_node()
+        self.root.node.last_node()
     }
 
     #[inline]
     pub fn new() -> Self {
-        AVLTree { root: AVLNodePtr::null(), count: 0, _marker: marker::PhantomData }
+        AVLTree { root: AVLRoot { node: AVLNodePtr::null() }, count: 0, _marker: marker::PhantomData }
     }
 
     #[inline]
     pub fn clone_from(&mut self, t: &AVLTree<K, V>) where K: Clone, V: Clone {
-        self.root = AVLNodePtr::deep_clone::<K, V>(t.root, AVLNodePtr::null());
+        self.root = AVLRoot { node: AVLNodePtr::deep_clone::<K, V>(t.root.node, AVLNodePtr::null()) };
         self.count = t.count;
     }
 
@@ -222,18 +219,10 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     }
 
     #[inline]
-    fn link_post_insert(&mut self, key: K, value: V, parent: AVLNodePtr, cmp_node_ref: *mut AVLNodePtr) {
-        let new_node = AVLNodePtr::new(key, value);
-        unsafe { AVLTree::<K, V>::link_node(new_node, parent, cmp_node_ref); }
-        unsafe { self.node_post_insert(new_node); }
-        self.count += 1;
-    }
-
-    #[inline]
     fn find_duplicate(&mut self, key: &K) -> (AVLNodePtr, AVLNodePtr, *mut AVLNodePtr) {
         unsafe {
             let mut duplicate = AVLNodePtr::null();
-            let mut cmp_node_ref: *mut AVLNodePtr = &mut self.root;
+            let mut cmp_node_ref = &mut self.root.node as *mut AVLNodePtr;
             let mut parent = AVLNodePtr::null();
             while (*cmp_node_ref).not_null() {
                 parent = *cmp_node_ref;
@@ -256,13 +245,11 @@ impl<K, V> AVLTree<K, V> where K: Ord {
 
     #[inline]
     unsafe fn find_node(&self, what: &K) -> AVLNodePtr {
-        let mut node = self.root;
-        let mut res_node = AVLNodePtr::null();
+        let mut node = self.root.node;
         while node.not_null() {
             match what.cmp(node.key_ref::<K, V>()) {
                 Ordering::Equal => {
-                    res_node = node;
-                    break;
+                    return node;
                 }
                 Ordering::Less => {
                     node = node.left();
@@ -272,128 +259,23 @@ impl<K, V> AVLTree<K, V> where K: Ord {
                 }
             }
         }
-        res_node
+        AVLNodePtr::null()
     }
 
-    #[inline]
-    unsafe fn link_node(new_node: AVLNodePtr, parent: AVLNodePtr, cmp_node: *mut AVLNodePtr) {
-        new_node.set_parent(parent);
-        new_node.set_height(0);
-        new_node.set_left(AVLNodePtr::null());
-        new_node.set_right(AVLNodePtr::null());
-        *cmp_node = new_node;
-    }
-
-    #[inline]
-    unsafe fn node_post_insert(&mut self, mut node: AVLNodePtr) {
-        node.set_height(1);
-        node = node.parent();
-        while node.not_null() {
-            let h0 = node.left_height();
-            let h1 = node.right_height();
-            let height = max(h1, h0) + 1;
-            let diff = h0 - h1;
-            if node.height() == height {
-                break;
-            }
-            node.set_height(height);
-            if diff <= -2 {
-                node = self.node_fix_l(node);
-            } else if diff >= 2 {
-                node = self.node_fix_r(node);
-            }
-            node = node.parent();
-        }
-    }
-
-    #[inline]
-    unsafe fn node_fix_l(&mut self, mut node: AVLNodePtr) -> AVLNodePtr {
-        let right = node.right();
-        let rh0 = right.left_height();
-        let rh1 = right.right_height();
-        if rh0 > rh1 {
-            let right = self.node_rotate_right(right);
-            right.right().height_update();
-            right.height_update();
-        }
-        node = self.node_rotate_left(node);
-        node.left().height_update();
-        node.height_update();
-        node
-    }
-
-    #[inline]
-    unsafe fn node_fix_r(&mut self, mut node: AVLNodePtr) -> AVLNodePtr {
-        let left = node.left();
-        let rh0 = left.left_height();
-        let rh1 = left.right_height();
-        if rh0 < rh1 {
-            let left = self.node_rotate_left(left);
-            left.left().height_update();
-            left.height_update();
-        }
-        node = self.node_rotate_right(node);
-        node.right().height_update();
-        node.height_update();
-        node
-    }
-
-    #[inline]
-    unsafe fn node_rotate_right(&mut self, node: AVLNodePtr) -> AVLNodePtr {
-        let left = node.left();
-        let parent = node.parent();
-        node.set_left(left.right());
-        if left.right().not_null() {
-            left.right().set_parent(node);
-        }
-        left.set_right(node);
-        left.set_parent(parent);
-        self.child_replace(node, left, parent);
-        node.set_parent(left);
-        left
-    }
-
-    #[inline]
-    unsafe fn node_rotate_left(&mut self, node: AVLNodePtr) -> AVLNodePtr {
-        let right = node.right();
-        let parent = node.parent();
-        node.set_right(right.left());
-        if right.left().not_null() {
-            right.left().set_parent(node);
-        }
-        right.set_left(node);
-        right.set_parent(parent);
-        self.child_replace(node, right, parent);
-        node.set_parent(right);
-        right
-    }
-
-    #[inline]
-    unsafe fn child_replace(&mut self, old_node: AVLNodePtr, new_node: AVLNodePtr, parent: AVLNodePtr) {
-        if parent.is_null() {
-            self.root = new_node;
-        } else {
-            if parent.left() == old_node {
-                parent.set_left(new_node);
-            } else {
-                parent.set_right(new_node);
-            }
-        }
-    }
 
     #[inline]
     fn isomorphic(&self, t: &AVLTree<K, V>) -> bool {
         if self.size() != t.size() {
             return false;
         }
-        self.root.isomorphic(t.root)
+        self.root.node.isomorphic(t.root.node)
     }
 
     fn bst_check(&self) -> bool {
         let mut iter = self.iter();
         let first = iter.next();
         if first.is_none() {
-            return iter.size_hint().0 == self.size() && self.root.is_null();
+            return iter.size_hint().0 == self.size() && self.root.node.is_null();
         }
         let mut prev = first;
         let mut cnt = 1usize;
@@ -416,7 +298,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
         let mut iter = self.iter();
         let first = iter.next_back();
         if first.is_none() {
-            return iter.size_hint().0 == self.size() && self.root.is_null();
+            return iter.size_hint().0 == self.size() && self.root.node.is_null();
         }
         let mut prev = first;
         let mut cnt = 1usize;
@@ -440,9 +322,11 @@ impl<K, V> AVLTree<K, V> where K: Ord {
         if node.is_null() {
             return;
         }
-        self.erase_node(node);
-        node.set_parent(node);
-        self.count -= 1;
+        if !node.empty() {
+            avl_node::erase_node(node, self.get_root_ptr());
+            node.set_parent(node);
+            self.count -= 1;
+        }
     }
 
     #[inline]
@@ -488,75 +372,6 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     }
 
     #[inline]
-    unsafe fn erase_node(&mut self, mut node: AVLNodePtr) {
-        if node.is_null() {
-            return;
-        }
-        let parent = if node.left().not_null() && node.right().not_null() {
-            let old = node;
-            node = node.right();
-            while node.left().not_null() {
-                node = node.left();
-            }
-            let child = node.right();
-            let mut parent = node.parent();
-            if child.not_null() {
-                child.set_parent(parent);
-            }
-            self.child_replace(node, child, parent);
-            if node.parent() == old {
-                parent = node;
-            }
-            node.set_left(old.left());
-            node.set_right(old.right());
-            node.set_parent(old.parent());
-            node.set_height(old.height());
-            self.child_replace(old, node, old.parent());
-            old.left().set_parent(node);
-            if old.right().not_null() {
-                old.right().set_parent(node);
-            }
-            parent
-        } else {
-            let child = if node.left().is_null() {
-                node.right()
-            } else {
-                node.left()
-            };
-            let parent = node.parent();
-            self.child_replace(node, child, parent);
-            if child.not_null() {
-                child.set_parent(parent);
-            }
-            parent
-        };
-        if parent.not_null() {
-            self.rebalance_node(parent);
-        }
-    }
-
-    #[inline]
-    unsafe fn rebalance_node(&mut self, mut node: AVLNodePtr) {
-        while node.not_null() {
-            let h0 = node.left_height();
-            let h1 = node.right_height();
-            let diff = h0 - h1;
-            let height = max(h0, h1) + 1;
-            if node.height() != height {
-                break;
-            } else if diff >= -1 && diff <= 1 {
-                break;
-            }
-            if diff <= -2 {
-                node = self.node_fix_l(node);
-            } else if diff >= 2 {
-                node = self.node_fix_r(node);
-            }
-            node = node.parent();
-        }
-    }
-
-    #[inline]
     fn drop_node(node: AVLNodePtr) {
         if node.not_null() {
             AVLTree::<K, V>::drop_node(node.left());
@@ -567,9 +382,31 @@ impl<K, V> AVLTree<K, V> where K: Ord {
 
     #[inline]
     pub fn clear(&mut self) {
-        AVLTree::<K, V>::drop_node(self.root);
-        self.root = AVLNodePtr::null();
+        AVLTree::<K, V>::drop_node(self.root.node);
+        self.root.node = AVLNodePtr::null();
         self.count = 0;
+    }
+
+    #[inline]
+    pub fn traversal_clear(&mut self) {
+        let mut next = ptr::null_mut();
+        while self.root.node.not_null() {
+            unsafe { avl_node::avl_node_tear(&mut self.root as avl_node::AVLRootPtr, &mut next as *mut AVLNodePtr).destroy::<K, V>() };
+        }
+        self.count = 0;
+    }
+
+    #[inline]
+    pub fn link_post_insert(&mut self, key: K, value: V, parent: AVLNodePtr, cmp_node_ref: *mut AVLNodePtr) {
+        let new_node = AVLNodePtr::new(key, value);
+        unsafe { avl_node::link_node(new_node, parent, cmp_node_ref); }
+        unsafe { avl_node::node_post_insert(new_node, self.get_root_ptr()); }
+        self.count += 1;
+    }
+
+    #[inline]
+    fn get_root_ptr(&mut self) -> AVLRootPtr {
+        &mut self.root as AVLRootPtr
     }
 
     #[inline]
@@ -621,7 +458,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
 
     #[inline]
     unsafe fn set_empty(&mut self) {
-        self.root = AVLNodePtr::null();
+        self.root.node = AVLNodePtr::null();
         self.count = 0;
     }
 }
@@ -914,7 +751,7 @@ impl<K: Ord, V> IntoIterator for AVLTree<K, V> {
 
     #[inline]
     fn into_iter(mut self) -> IntoIter<K, V> {
-        let iter = if self.root.is_null() {
+        let iter = if self.root.node.is_null() {
             IntoIter {
                 head: AVLNodePtr::null(),
                 tail: AVLNodePtr::null(),
@@ -939,7 +776,7 @@ pub mod test {
 
     use avl::AVLTree;
     use std::cmp::Ordering;
-    use avl::DataOperation;
+    use avl::AVLDataNodeOperation;
     use avl_node::AVLNodePtrBase;
 
     type DefaultType = AVLTree<i32, Option<i32>>;
@@ -948,22 +785,22 @@ pub mod test {
     fn test_avl_basic() {
         let mut t = DefaultType::new();
         {
-            assert!(t.root.is_null());
+            assert!(t.root.node.is_null());
             t.insert(3, None);
-            assert_eq!(*t.root.key_ref::<i32, Option<i32>>(), 3);
-            assert_eq!(t.root.height(), 1);
-            assert!(t.root.left().is_null());
-            assert!(t.root.right().is_null());
+            assert_eq!(*t.root.node.key_ref::<i32, Option<i32>>(), 3);
+            assert_eq!(t.root.node.height(), 1);
+            assert!(t.root.node.left().is_null());
+            assert!(t.root.node.right().is_null());
 
             t.insert(2, None);
-            assert_eq!(*t.root.key_ref::<i32, Option<i32>>(), 3);
-            assert_eq!(t.root.height(), 2);
-            assert_eq!(*t.root.left().key_ref::<i32, Option<i32>>(), 2);
+            assert_eq!(*t.root.node.key_ref::<i32, Option<i32>>(), 3);
+            assert_eq!(t.root.node.height(), 2);
+            assert_eq!(*t.root.node.left().key_ref::<i32, Option<i32>>(), 2);
 
             t.insert(1, None);
-            assert_eq!(*t.root.key_ref::<i32, Option<i32>>(), 2);
-            assert_eq!(t.root.height(), 2);
-            assert_eq!(*t.root.left().key_ref::<i32, Option<i32>>(), 1);
+            assert_eq!(*t.root.node.key_ref::<i32, Option<i32>>(), 2);
+            assert_eq!(t.root.node.height(), 2);
+            assert_eq!(*t.root.node.left().key_ref::<i32, Option<i32>>(), 1);
         }
     }
 
@@ -995,14 +832,14 @@ pub mod test {
         let mut t = DefaultType::new();
         {
             t.insert(3, None);
-            assert_eq!(*t.root.key_ref::<i32, Option<i32>>(), 3);
-            assert_eq!(t.root.height(), 1);
+            assert_eq!(*t.root.node.key_ref::<i32, Option<i32>>(), 3);
+            assert_eq!(t.root.node.height(), 1);
             t.insert(2, None);
-            assert_eq!(*t.root.key_ref::<i32, Option<i32>>(), 3);
-            assert_eq!(t.root.height(), 2);
+            assert_eq!(*t.root.node.key_ref::<i32, Option<i32>>(), 3);
+            assert_eq!(t.root.node.height(), 2);
             t.insert(1, None);
-            assert_eq!(*t.root.key_ref::<i32, Option<i32>>(), 2);
-            assert_eq!(t.root.height(), 2);
+            assert_eq!(*t.root.node.key_ref::<i32, Option<i32>>(), 2);
+            assert_eq!(t.root.node.height(), 2);
         }
     }
 
@@ -1011,14 +848,14 @@ pub mod test {
         let mut t = DefaultType::new();
         {
             t.insert(1, None);
-            assert_eq!(*t.root.key_ref::<i32, Option<i32>>(), 1);
-            assert_eq!(t.root.height(), 1);
+            assert_eq!(*t.root.node.key_ref::<i32, Option<i32>>(), 1);
+            assert_eq!(t.root.node.height(), 1);
             t.insert(2, None);
-            assert_eq!(*t.root.key_ref::<i32, Option<i32>>(), 1);
-            assert_eq!(t.root.height(), 2);
+            assert_eq!(*t.root.node.key_ref::<i32, Option<i32>>(), 1);
+            assert_eq!(t.root.node.height(), 2);
             t.insert(3, None);
-            assert_eq!(*t.root.key_ref::<i32, Option<i32>>(), 2);
-            assert_eq!(t.root.height(), 2);
+            assert_eq!(*t.root.node.key_ref::<i32, Option<i32>>(), 2);
+            assert_eq!(t.root.node.height(), 2);
         }
     }
 
@@ -1056,11 +893,11 @@ pub mod test {
         let mut t = AVLTree::<MyData, Option<i32>>::new();
         {
             t.insert(MyData { a: 1 }, None);
-            assert_eq!(*t.root.key_ref::<MyData, Option<i32>>(), MyData { a: 1 });
-            assert_eq!(t.root.height(), 1);
+            assert_eq!(*t.root.node.key_ref::<MyData, Option<i32>>(), MyData { a: 1 });
+            assert_eq!(t.root.node.height(), 1);
             t.insert(MyData { a: 2 }, None);
-            assert_eq!(*t.root.key_ref::<MyData, Option<i32>>(), MyData { a: 1 });
-            assert_eq!(t.root.height(), 2);
+            assert_eq!(*t.root.node.key_ref::<MyData, Option<i32>>(), MyData { a: 1 });
+            assert_eq!(t.root.node.height(), 2);
 
             *t.get_mut(&MyData { a: 1 }).unwrap() = Some(23333);
             assert_eq!((*t.get_ref(&MyData { a: 1 }).unwrap()).unwrap(), 23333);
@@ -1102,11 +939,11 @@ pub mod test {
         let test_num = 1000usize;
         let t = default_build_avl(test_num);
         assert_eq!(t.size(), test_num);
-        assert_eq!(t.root.height(), 12);
-        let left = t.root.left();
+        assert_eq!(t.root.node.height(), 12);
+        let left = t.root.node.left();
         assert!(left.height() <= 11);
         assert!(left.height() >= 10);
-        let right = t.root.right();
+        let right = t.root.node.right();
         assert!(right.height() <= 11);
         assert!(right.height() >= 10);
 
@@ -1120,7 +957,7 @@ pub mod test {
         let mut t = default_build_avl(test_num);
         t.clear();
         assert!(t.empty());
-        assert!(t.root.is_null());
+        assert!(t.root.node.is_null());
     }
 
     #[test]
