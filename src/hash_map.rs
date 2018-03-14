@@ -1,4 +1,4 @@
-use fastbin::{Fastbin};
+use fastbin::Fastbin;
 use hash_table::{HashNode, HashTable, HashUint};
 use hash_table;
 use hash_table::HashNodePtrOperation;
@@ -16,8 +16,7 @@ use avl_node;
 
 pub struct HashMap<K, V, S = RandomState> where K: Ord + Hash, S: BuildHasher {
     fastbin: Fastbin,
-    hash_table: HashTable<K, V>,
-    count: usize,
+    hash_table: Box<HashTable<K, V>>,
     hash_builder: S,
     inserted: bool,
 }
@@ -44,7 +43,7 @@ impl<K, V> HashEntryBase<K, V> for *mut HashEntry<K, V> {
     }
     #[inline]
     fn set_value(self, value: *mut V) {
-        unsafe {(*self).value = value;}
+        unsafe { (*self).value = value; }
     }
 }
 
@@ -100,19 +99,15 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
         hash_node.deref_to_hash_entry()
     }
 
-    #[inline]
-    pub fn new() -> HashMap<K, V, RandomState> {
-        Default::default()
-    }
-
     pub fn with_hasher(hash_builder: S) -> Self {
-        HashMap {
+        let mut map = HashMap {
             fastbin: Fastbin::new(mem::size_of::<HashEntry<K, V>>()),
-            hash_table: HashTable::new(),
-            count: 0,
+            hash_table: Box::new(HashTable::new()),
             hash_builder,
             inserted: false,
-        }
+        };
+        map.hash_table.init();
+        map
     }
 
     #[inline]
@@ -122,7 +117,12 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
             if entry.is_null() { break; }
             self.erase(entry);
         }
-        debug_assert_eq!(self.count, 0);
+        debug_assert_eq!(self.hash_table.size(), 0);
+    }
+
+    #[inline]
+    pub fn size(&self) -> usize {
+        self.hash_table.size()
     }
 
     fn erase(&mut self, entry: *mut HashEntry<K, V>) {
@@ -137,6 +137,7 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
         self.fastbin.del(entry as *mut u8);
     }
 
+    #[inline]
     fn destroy(&mut self) {
         self.clear();
         let ptr = self.hash_table.hash_swap(ptr::null_mut(), 0);
@@ -187,7 +188,7 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
             entry.node_ptr().set_hash_val(hash_val);
             index.set_avl_root_node(entry.node_ptr().avl_node_ptr());
             index.node_ptr().list_add_tail(self.hash_table.head_ptr());
-            self.hash_table.count += 1;
+            self.hash_table.inc_count();
             self.inserted = true;
             return entry;
         }
@@ -196,7 +197,7 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
             let snode = parent.avl_hash_deref_mut::<K>();
             let snode_hash = snode.hash_val();
             if hash_val != snode_hash {
-                link = if hash_val < snode_hash {parent.left_mut()} else { parent.right_mut() };
+                link = if hash_val < snode_hash { parent.left_mut() } else { parent.right_mut() };
             } else {
                 match (*key).cmp(&(*snode.key_ptr())) {
                     Ordering::Equal => {
@@ -222,7 +223,7 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
         entry.node_ptr().set_hash_val(hash_val);
         avl_node::link_node(entry.node_ptr().avl_node_ptr(), parent, link);
         avl_node::node_post_insert(entry.node_ptr().avl_node_ptr(), index.avl_root_ptr());
-        self.hash_table.count += 1;
+        self.hash_table.inc_count();
         self.inserted = true;
         entry
     }
@@ -244,6 +245,20 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
     }
 }
 
+impl<K: Hash + Ord, V> HashMap<K, V, RandomState> {
+    #[inline]
+    pub fn new() -> HashMap<K, V, RandomState> {
+        Default::default()
+    }
+
+    #[inline]
+    pub fn with_capacity(capacity: usize) -> HashMap<K, V, RandomState> {
+        let mut hash_map = HashMap::<K, V, RandomState>::default();
+        hash_map.rehash(capacity);
+        hash_map
+    }
+}
+
 impl<K, V, S> Default for HashMap<K, V, S>
     where K: Ord + Hash,
           S: BuildHasher + Default
@@ -253,7 +268,8 @@ impl<K, V, S> Default for HashMap<K, V, S>
     }
 }
 
-impl <K, V, S> Drop for HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
+impl<K, V, S> Drop for HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
+    #[inline]
     fn drop(&mut self) {
         self.destroy();
     }
@@ -261,3 +277,16 @@ impl <K, V, S> Drop for HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
 
 #[test]
 fn just_for_compile() {}
+
+mod test {
+    use hash_map::HashMap;
+    use std::collections::HashMap as t;
+    use std::collections::hash_map::RandomState;
+
+    #[test]
+    fn test_hash_map() {
+        let mut map = HashMap::new();
+        map.set(1, 2);
+        assert_eq!(*map.get(&1).unwrap(), 2);
+    }
+}

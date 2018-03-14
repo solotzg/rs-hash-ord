@@ -121,12 +121,12 @@ impl HashIndexPtrOperation for *mut HashIndex {
 }
 
 pub struct HashTable<K, V> {
-    pub count: usize,
+    count: usize,
     index_size: usize,
     index_mask: usize,
     head: ListHead,
-    index: *mut HashIndex,
-    init: [HashIndex; AVL_HASH_INIT_SIZE],
+    pub index: *mut HashIndex,
+    pub init: [HashIndex; AVL_HASH_INIT_SIZE],
     _marker: marker::PhantomData<(K, V)>,
 }
 
@@ -162,11 +162,21 @@ pub fn make_hash<T: ?Sized, S>(hash_state: &S, t: &T) -> HashUint where T: Hash,
 
 impl<K, V> HashTable<K, V> where K: Ord + Hash {
     #[inline]
+    pub fn size(&self) -> usize {
+        self.count
+    }
+
+    #[inline]
+    pub fn inc_count(&mut self) {
+        self.count += 1;
+    }
+
+    #[inline]
     pub fn count(&self) -> usize {
         self.count
     }
     pub fn new() -> Self {
-        let mut hash_table = HashTable {
+        HashTable {
             count: 0,
             index_size: 0,
             index_mask: 0,
@@ -174,9 +184,7 @@ impl<K, V> HashTable<K, V> where K: Ord + Hash {
             index: ptr::null_mut(),
             init: [HashIndex::default(); AVL_HASH_INIT_SIZE],
             _marker: marker::PhantomData,
-        };
-        hash_table.init();
-        hash_table
+        }
     }
 
     #[inline]
@@ -185,7 +193,7 @@ impl<K, V> HashTable<K, V> where K: Ord + Hash {
     }
 
     #[inline]
-    fn init(&mut self) {
+    pub fn init(&mut self) {
         self.count = 0;
         self.index_size = AVL_HASH_INIT_SIZE;
         self.index_mask = self.index_size - 1;
@@ -193,7 +201,7 @@ impl<K, V> HashTable<K, V> where K: Ord + Hash {
         self.index = self.init.as_mut_ptr();
         for i in 0..AVL_HASH_INIT_SIZE {
             unsafe {
-                (*self.index.offset(i as isize)).avl_root.node = AVLNodePtr::null();
+                (*self.index.offset(i as isize)).avl_root.node = ptr::null_mut();
                 (&mut (*self.index.offset(i as isize)).node as ListHeadPtr).list_init();
             }
         }
@@ -202,7 +210,7 @@ impl<K, V> HashTable<K, V> where K: Ord + Hash {
     #[inline]
     pub fn node_first(&self) -> *mut HashNode<K> {
         let head: ListHeadPtr = self.head.next as ListHeadPtr;
-        if self.head.is_eq_ptr(head) {
+        if !self.head.is_eq_ptr(head) {
             let index: *mut HashIndex = head.hash_index_deref_mut();
             let avl_node = index.avl_root_node().first_node();
             if avl_node.is_null() {
@@ -216,7 +224,7 @@ impl<K, V> HashTable<K, V> where K: Ord + Hash {
     #[inline]
     pub fn node_last(&self) -> *mut HashNode<K> {
         let head: ListHeadPtr = self.head.prev;
-        if self.head.is_eq_ptr(head) {
+        if !self.head.is_eq_ptr(head) {
             let index: *mut HashIndex = head.hash_index_deref_mut();
             let avl_node = index.avl_root_node().last_node();
             if avl_node.is_null() {
@@ -317,8 +325,8 @@ impl<K, V> HashTable<K, V> where K: Ord + Hash {
         let key = node.key_ptr();
         let index = self.get_hash_index(hash);
         let mut link = &mut index.avl_root_node() as *mut AVLNodePtr;
-        (*parent) = AVLNodePtr::null();
-        let mut p = AVLNodePtr::null();
+        (*parent) = ptr::null_mut();
+        let mut p = ptr::null_mut();
         while (*link).not_null() {
             p = *link;
             let snode = p.avl_hash_deref_mut::<K>();
@@ -349,13 +357,13 @@ impl<K, V> HashTable<K, V> where K: Ord + Hash {
         if index.avl_root_node().is_null() {
             let tmp_node = node.avl_node_ptr();
             index.set_avl_root_node(tmp_node);
-            tmp_node.set_parent(AVLNodePtr::null());
-            tmp_node.set_left(AVLNodePtr::null());
-            tmp_node.set_right(AVLNodePtr::null());
+            tmp_node.set_parent(ptr::null_mut());
+            tmp_node.set_left(ptr::null_mut());
+            tmp_node.set_right(ptr::null_mut());
             tmp_node.set_height(1);
             self.head_ptr().list_add_tail(index.node_ptr());
         } else {
-            let mut parent = AVLNodePtr::null();
+            let mut parent = ptr::null_mut::<AVLNode>();
             let link = unsafe { self.hash_track(node, &mut parent as *mut AVLNodePtr) };
             if link.is_null() {
                 return parent.avl_hash_deref_mut::<K>();

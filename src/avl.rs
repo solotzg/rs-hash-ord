@@ -199,12 +199,12 @@ impl<K, V> AVLTree<K, V> where K: Ord {
 
     #[inline]
     pub fn new() -> Self {
-        AVLTree { root: AVLRoot { node: AVLNodePtr::null() }, count: 0, _marker: marker::PhantomData }
+        AVLTree { root: AVLRoot { node: ptr::null_mut() }, count: 0, _marker: marker::PhantomData }
     }
 
     #[inline]
     pub fn clone_from(&mut self, t: &AVLTree<K, V>) where K: Clone, V: Clone {
-        self.root = AVLRoot { node: AVLNodePtr::deep_clone::<K, V>(t.root.node, AVLNodePtr::null()) };
+        self.root = AVLRoot { node: AVLNodePtr::deep_clone::<K, V>(t.root.node, ptr::null_mut()) };
         self.count = t.count;
     }
 
@@ -221,9 +221,9 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     #[inline]
     fn find_duplicate(&mut self, key: &K) -> (AVLNodePtr, AVLNodePtr, *mut AVLNodePtr) {
         unsafe {
-            let mut duplicate = AVLNodePtr::null();
+            let mut duplicate = ptr::null_mut();
             let mut cmp_node_ref = &mut self.root.node as *mut AVLNodePtr;
-            let mut parent = AVLNodePtr::null();
+            let mut parent = ptr::null_mut();
             while (*cmp_node_ref).not_null() {
                 parent = *cmp_node_ref;
                 match key.cmp(parent.key_ref::<K, V>()) {
@@ -259,7 +259,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
                 }
             }
         }
-        AVLNodePtr::null()
+        ptr::null_mut()
     }
 
 
@@ -383,7 +383,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     #[inline]
     pub fn clear(&mut self) {
         AVLTree::<K, V>::drop_node(self.root.node);
-        self.root.node = AVLNodePtr::null();
+        self.root.node = ptr::null_mut();
         self.count = 0;
     }
 
@@ -458,7 +458,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
 
     #[inline]
     unsafe fn set_empty(&mut self) {
-        self.root.node = AVLNodePtr::null();
+        self.root.node = ptr::null_mut();
         self.count = 0;
     }
 }
@@ -753,8 +753,8 @@ impl<K: Ord, V> IntoIterator for AVLTree<K, V> {
     fn into_iter(mut self) -> IntoIter<K, V> {
         let iter = if self.root.node.is_null() {
             IntoIter {
-                head: AVLNodePtr::null(),
-                tail: AVLNodePtr::null(),
+                head: ptr::null_mut(),
+                tail: ptr::null_mut(),
                 len: 0,
                 _marker: marker::PhantomData,
             }

@@ -48,7 +48,6 @@ pub trait AVLNodePtrBase {
     fn right(self) -> AVLNodePtr;
     fn left_mut(self) -> *mut AVLNodePtr;
     fn right_mut(self) -> *mut AVLNodePtr;
-    fn null() -> AVLNodePtr;
     fn not_null(self) -> bool;
     fn set_height(self, height: i32);
     fn left_height(self) -> i32;
@@ -90,7 +89,7 @@ impl AVLNodePtrBase for *mut AVLNode {
     #[inline]
     fn next(self) -> AVLNodePtr {
         if self.is_null() {
-            return AVLNodePtr::null();
+            return ptr::null_mut();
         }
         let mut node = self;
         if self.right().not_null() {
@@ -116,7 +115,7 @@ impl AVLNodePtrBase for *mut AVLNode {
     #[inline]
     fn prev(self) -> AVLNodePtr {
         if self.is_null() {
-            return AVLNodePtr::null();
+            return ptr::null_mut();
         }
         let mut node = self;
         if node.left().not_null() {
@@ -180,11 +179,6 @@ impl AVLNodePtrBase for *mut AVLNode {
     }
 
     #[inline]
-    fn null() -> AVLNodePtr {
-        ptr::null_mut()
-    }
-
-    #[inline]
     fn not_null(self) -> bool {
         !self.is_null()
     }
@@ -208,7 +202,7 @@ impl AVLNodePtrBase for *mut AVLNode {
     fn first_node(self) -> AVLNodePtr {
         let mut ptr = self;
         if ptr.is_null() {
-            return AVLNodePtr::null();
+            return ptr::null_mut();
         }
         while ptr.left().not_null() {
             ptr = ptr.left();
@@ -220,7 +214,7 @@ impl AVLNodePtrBase for *mut AVLNode {
     fn last_node(self) -> AVLNodePtr {
         let mut ptr = self;
         if ptr.is_null() {
-            return AVLNodePtr::null();
+            return ptr::null_mut();
         }
         while ptr.right().not_null() {
             ptr = ptr.right();
@@ -395,8 +389,8 @@ pub unsafe fn node_rotate_left(node: AVLNodePtr, root: AVLRootPtr) -> AVLNodePtr
 pub unsafe fn link_node(new_node: AVLNodePtr, parent: AVLNodePtr, link_node: *mut AVLNodePtr) {
     new_node.set_parent(parent);
     new_node.set_height(0);
-    new_node.set_left(AVLNodePtr::null());
-    new_node.set_right(AVLNodePtr::null());
+    new_node.set_left(ptr::null_mut());
+    new_node.set_right(ptr::null_mut());
     *link_node = new_node;
 }
 
