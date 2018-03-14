@@ -310,7 +310,7 @@ unsafe fn rebalance_node(mut node: AVLNodePtr, root: AVLRootPtr) {
         let diff = h0 - h1;
         let height = max(h0, h1) + 1;
         if node.height() != height {
-            break;
+            node.set_height(height);
         } else if diff >= -1 && diff <= 1 {
             break;
         }

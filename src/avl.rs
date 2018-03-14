@@ -463,9 +463,6 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     }
 }
 
-#[test]
-fn just_for_compile() {}
-
 impl<K, V> Drop for AVLTree<K, V> where K: Ord {
     fn drop(&mut self) {
         self.clear();

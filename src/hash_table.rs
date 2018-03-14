@@ -245,7 +245,7 @@ impl<K, V> HashTable<K, V> where K: Ord + Hash {
         if node.is_null() {
             return ptr::null_mut::<HashNode<K>>();
         }
-        let mut avl_node = unsafe { ((&mut (*node).avl_node) as AVLNodePtr).next() };
+        let mut avl_node = node.avl_node_ptr().next();
         if avl_node.not_null() {
             return avl_node.avl_hash_deref_mut::<K>();
         }
@@ -308,6 +308,7 @@ impl<K, V> HashTable<K, V> where K: Ord + Hash {
 
     #[inline]
     pub fn hash_erase(&mut self, node: *mut HashNode<K>) {
+        debug_assert!(!node.avl_node_ptr().empty());
         let index = self.get_hash_index(node.hash_val());
         if index.avl_root_node() == node.avl_node_ptr() && node.avl_node_ptr().height() == 1 {
             index.set_avl_root_node(ptr::null_mut());
@@ -326,29 +327,29 @@ impl<K, V> HashTable<K, V> where K: Ord + Hash {
         let index = self.get_hash_index(hash);
         let mut link = &mut index.avl_root_node() as *mut AVLNodePtr;
         (*parent) = ptr::null_mut();
-        let mut p = ptr::null_mut();
+        let mut tmp_node = ptr::null_mut();
         while (*link).not_null() {
-            p = *link;
-            let snode = p.avl_hash_deref_mut::<K>();
+            tmp_node = *link;
+            let snode = tmp_node.avl_hash_deref_mut::<K>();
             let shash = snode.hash_val();
             if shash == hash {
                 match (*key).cmp(&(*snode.key_ptr())) {
                     Ordering::Equal => {
-                        *parent = p;
+                        *parent = tmp_node;
                         return ptr::null_mut();
                     }
                     Ordering::Less => {
-                        link = p.left_mut();
+                        link = tmp_node.left_mut();
                     }
                     Ordering::Greater => {
-                        link = p.right_mut();
+                        link = tmp_node.right_mut();
                     }
                 }
             } else {
-                link = if hash < shash { p.left_mut() } else { p.right_mut() }
+                link = if hash < shash { tmp_node.left_mut() } else { tmp_node.right_mut() }
             }
         }
-        *parent = p;
+        *parent = tmp_node;
         link
     }
 
@@ -357,10 +358,7 @@ impl<K, V> HashTable<K, V> where K: Ord + Hash {
         if index.avl_root_node().is_null() {
             let tmp_node = node.avl_node_ptr();
             index.set_avl_root_node(tmp_node);
-            tmp_node.set_parent(ptr::null_mut());
-            tmp_node.set_left(ptr::null_mut());
-            tmp_node.set_right(ptr::null_mut());
-            tmp_node.set_height(1);
+            tmp_node.reset(ptr::null_mut(),ptr::null_mut(), ptr::null_mut(), 1);
             self.head_ptr().list_add_tail(index.node_ptr());
         } else {
             let mut parent = ptr::null_mut::<AVLNode>();
@@ -408,12 +406,12 @@ impl<K, V> HashTable<K, V> where K: Ord + Hash {
         if new_index != self.init.as_mut_ptr() {
             let mut test_size = mem::size_of::<HashIndex>();
             while test_size < nbytes {
-                let next_size = test_size + 2;
+                let next_size = test_size * 2;
                 if next_size > nbytes {
                     break;
                 }
                 test_size = next_size;
-                index_size = index_size + 2;
+                index_size = index_size * 2;
             }
         }
         self.index = new_index;
@@ -427,7 +425,7 @@ impl<K, V> HashTable<K, V> where K: Ord + Hash {
         ListHeadPtr::list_replace(self.head_ptr(), head_ptr);
         self.head_ptr().list_init();
         while !head_ptr.list_is_empty() {
-            let index = head_ptr.next().hash_index_deref_mut();
+            let index = head.next.hash_index_deref_mut();
             let mut next = ptr::null_mut();
             while index.avl_root_node().not_null() {
                 let node = unsafe { avl_node::avl_node_tear(index.avl_root_ptr(), &mut next as *mut AVLNodePtr) };
@@ -462,5 +460,4 @@ impl<K, V> HashTable<K, V> where K: Ord + Hash {
 }
 
 #[test]
-fn just_for_compile() {
-}
+fn just_for_compile() {}

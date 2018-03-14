@@ -24,7 +24,7 @@ impl Default for Fastbin {
             obj_size: 0,
             page_size: 0,
             align: 0,
-            maximum: 1usize << 16,
+            maximum: 1usize << 16, // default maximum page size is 64k
             start: VOID_PTR_NULL,
             end: VOID_PTR_NULL,
             next: VOID_PTR_NULL,
@@ -42,8 +42,8 @@ impl Fastbin {
     }
 
     #[inline]
-    pub fn del(&mut self, ptr: VoidPtr) {
-        (self as FastbinPtr).fastbin_del(ptr);
+    pub fn del(&self, ptr: VoidPtr) {
+        (self as * const _ as FastbinPtr).fastbin_del(ptr);
     }
 
     #[inline]
@@ -130,7 +130,7 @@ impl FastbinPtrOperation for *mut Fastbin {
             let page_size = get_page_size(page);
             self.set_pages(next);
             unsafe {
-                Heap.dealloc(self.pages(), Layout::from_size_align_unchecked(page_size, self.align()));
+                Heap.dealloc(page, Layout::from_size_align_unchecked(page_size, self.align()));
             }
         }
         self.set_start(VOID_PTR_NULL);
