@@ -15,7 +15,8 @@ use std::cmp::Ordering;
 use avl_node;
 
 pub struct HashMap<K, V, S = RandomState> where K: Ord + Hash, S: BuildHasher {
-    fastbin: Fastbin,
+    entry_fastbin: Fastbin,
+    kv_fastbin: Fastbin,
     hash_table: Box<HashTable<K, V>>,
     hash_builder: S,
 }
@@ -105,7 +106,8 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
 
     pub fn with_hasher(hash_builder: S) -> Self {
         let mut map = HashMap {
-            fastbin: Fastbin::new(mem::size_of::<HashEntry<K, V>>()),
+            entry_fastbin: Fastbin::new(mem::size_of::<HashEntry<K, V>>()),
+            kv_fastbin: Fastbin::new(mem::size_of::<(K, V)>()),
             hash_table: Box::new(HashTable::new()),
             hash_builder,
         };
@@ -117,7 +119,7 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
         loop {
             let entry = self.first();
             if entry.is_null() { break; }
-            self.erase(entry);
+            self.erase(entry, false);
         }
         debug_assert_eq!(self.hash_table.size(), 0);
     }
@@ -127,16 +129,27 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
         self.hash_table.size()
     }
 
-    fn erase(&mut self, entry: *mut HashEntry<K, V>) {
+    fn erase(&mut self, entry: *mut HashEntry<K, V>, need_ret: bool) -> Option<(K, V)> {
         debug_assert!(!entry.is_null());
         debug_assert!(!entry.node_ptr().avl_node_ptr().empty());
         self.hash_table.hash_erase(entry.node_ptr());
         entry.node_ptr().avl_node_ptr().init();
-        unsafe { Box::from_raw(entry.node_ptr().key_ptr() as *mut K); }
-        unsafe { Box::from_raw(entry.value() as *mut K); }
+        let kv = entry.node_ptr().key_ptr() as *mut (K, V);
         entry.node_ptr().set_key_ptr(ptr::null());
         entry.set_value(ptr::null_mut());
-        self.fastbin.del(entry as VoidPtr);
+        self.entry_fastbin.del(entry as VoidPtr);
+        if !need_ret {
+            self.kv_fastbin.del(kv as VoidPtr);
+            None
+        } else {
+            unsafe {
+                let key = &mut (*kv).0 as *mut K;
+                let value = &mut (*kv).1 as *mut V;
+                let res = Some((ptr::read(key), ptr::read(value)));
+                self.kv_fastbin.del(kv as VoidPtr);
+                res
+            }
+        }
     }
 
     #[inline]
@@ -146,7 +159,8 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
         if !ptr.is_null() {
             unsafe { Box::from_raw(ptr); }
         }
-        self.fastbin.destroy();
+        self.entry_fastbin.destroy();
+        self.kv_fastbin.destroy();
     }
 
     fn find(&self, key: &K) -> *mut HashEntry<K, V> {
@@ -180,11 +194,22 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
     }
 
     fn entry_alloc(&mut self, key: *const K, value: *mut V) -> *mut HashEntry<K, V> {
-        let entry = self.fastbin.alloc() as *mut HashEntry<K, V>;
+        let entry = self.entry_fastbin.alloc() as *mut HashEntry<K, V>;
         debug_assert!(!entry.is_null());
         entry.set_value(value);
         entry.node_ptr().set_key_ptr(key);
         entry
+    }
+
+    fn kv_alloc(&mut self, key: K, value: V) -> (*mut K, *mut V) {
+        let kv = self.kv_fastbin.alloc() as *mut (K, V);
+        unsafe {
+            let key_ptr = unsafe {&mut (*kv).0 as *mut K};
+            let value_ptr = unsafe {&mut (*kv).1 as *mut V};
+            ptr::write(key_ptr, key);
+            ptr::write(value_ptr, value);
+            (key_ptr, value_ptr)
+        }
     }
 
     unsafe fn update(&mut self, key: *const K, value: *mut V, update: bool) -> *mut HashEntry<K, V> {
@@ -247,11 +272,18 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
 
     #[inline]
     pub fn insert(&mut self, key: K, value: V) {
-        let key = Box::into_raw(Box::new(key));
-        let value = Box::into_raw(Box::new(value));
-        unsafe { self.update(key, value, false) };
+        let (key_ptr, value_ptr) = self.kv_alloc(key, value);
+        unsafe { self.update(key_ptr, value_ptr, false) };
         let cap = self.hash_table.count();
         self.rehash(cap);
+    }
+
+    pub fn pop(&mut self, key: &K) -> Option<(K, V)> {
+        let entry = self.find(key);
+        if entry.is_null() {
+            return None;
+        }
+        self.erase(entry, true)
     }
 }
 
@@ -312,5 +344,20 @@ mod test {
             *v *= -1;
         }
         assert_eq!(*m.get(&111).unwrap(), 111);
+    }
+
+    #[test]
+    fn test_hash_map_pop() {
+        let mut m = HashMap::new();
+        for i in 100..200 {
+            m.insert(i, Some('1'));
+        }
+        for i in 100..200 {
+            let kv = m.pop(&i);
+            assert!(kv.is_some());
+            let tp = kv.unwrap();
+            assert_eq!(tp.0, i);
+            assert_eq!(tp.1, Some('1'));
+        }
     }
 }
