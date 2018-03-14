@@ -937,15 +937,16 @@ pub mod test {
     #[test]
     fn test_avl_validate() {
         let test_num = 1000usize;
-        let t = default_build_avl(test_num);
+        let mut t = AVLTree::new();
+        for i in 0..test_num {
+            t.insert(i, i);
+        }
         assert_eq!(t.size(), test_num);
-        assert_eq!(t.root.node.height(), 12);
+        assert_eq!(t.root.node.height(), 10);
         let left = t.root.node.left();
-        assert!(left.height() <= 11);
-        assert!(left.height() >= 10);
+        assert_eq!(left.height(), 9);
         let right = t.root.node.right();
-        assert!(right.height() <= 11);
-        assert!(right.height() >= 10);
+        assert_eq!(right.height(), 9);
 
         assert!(t.bst_check());
         assert!(t.bst_check_reverse());
