@@ -176,13 +176,9 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
         self.kv_fastbin.destroy();
     }
 
+    #[inline]
     fn find(&self, key: &K) -> *mut HashEntry<K, V> {
-        let mut dummy = HashNode {
-            hash_val: self.make_hash(key),
-            key: key as *const K,
-            avl_node: Default::default(),
-        };
-        let node = self.hash_table.hash_find(&mut dummy as *mut HashNode<K>);
+        let node = self.hash_table.hash_find(self.make_hash(key), key as *const K);
         if node.is_null() {
             ptr::null_mut()
         } else {

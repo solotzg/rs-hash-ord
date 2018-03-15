@@ -16,22 +16,22 @@ fn test_stl_hash_map(max_num: isize) {
     map.reserve(max_num as usize);
     let start = time::now();
     for i in 0..max_num {
-        map.insert(i, -i);
+        map.insert(i.to_string(), -i);
     }
     let duration = time::now() - start;
     println!("insert time {}", duration);
 
     let start = time::now();
     let mut cnt = 0;
-    for i in 0..2*max_num {
-        cnt += if map.get(&i).is_none() {0} else {1};
+    for i in 0..max_num {
+        cnt += if map.get(&i.to_string()).is_none() {0} else {1};
     }
     let duration = time::now() - start;
     println!("find {}, time {}", cnt, duration);
 
     let start = time::now();
-    for i in 0..2*max_num {
-        map.remove(&i);
+    for i in 0..max_num {
+        map.remove(&i.to_string());
     }
     let duration = time::now() - start;
     println!("remove time {}", duration);
@@ -43,22 +43,22 @@ fn test_hash_avl_map(max_num: isize) {
     map.reserve(max_num as usize);
     let start = time::now();
     for i in 0..max_num {
-        map.insert(i, -i);
+        map.insert(i.to_string(), -i);
     }
     let duration = time::now() - start;
     println!("insert time {}", duration);
 
     let start = time::now();
     let mut cnt = 0;
-    for i in 0..2*max_num {
-        cnt += if map.get(&i).is_none() {0} else {1};
+    for i in 0..max_num {
+        cnt += if map.get(&i.to_string()).is_none() {0} else {1};
     }
     let duration = time::now() - start;
     println!("find {}, time {}", cnt, duration);
 
     let start = time::now();
-    for i in 0..2*max_num {
-        map.pop(&i);
+    for i in 0..max_num {
+        map.pop(&i.to_string());
     }
     let duration = time::now() - start;
     println!("remove time {}", duration);

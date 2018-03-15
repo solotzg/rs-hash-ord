@@ -290,9 +290,7 @@ impl<K, V> HashTable<K, V> where K: Ord + Hash {
     }
 
     #[inline]
-    pub fn hash_find(&self, node: *mut HashNode<K>) -> *mut HashNode<K> {
-        let hash_val = node.hash_val();
-        let key_ptr = node.key_ptr();
+    pub fn hash_find(&self, hash_val: HashUint, key_ptr: *const K) -> *mut HashNode<K> {
         let index = self.get_hash_index(hash_val);
         let mut avl_node = index.avl_root_node();
         while avl_node.not_null() {
