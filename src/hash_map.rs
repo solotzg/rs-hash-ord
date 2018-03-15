@@ -163,7 +163,7 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
         entry.node_ptr().set_key_ptr(ptr::null());
         entry.set_value(ptr::null_mut());
         self.entry_fastbin.del(entry as VoidPtr);
-        let res = unsafe {Some((ptr::read(&mut (*kv).0 as *mut K), ptr::read(&mut (*kv).1 as *mut V)))};
+        let res = unsafe {Some(ptr::read(kv))};
         self.kv_fastbin.del(kv as VoidPtr);
         res
     }
@@ -286,6 +286,10 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
     #[inline]
     pub fn insert(&mut self, key: K, value: V) {
         self.insert_or_replace(key, value);
+    }
+
+    pub fn contain(&self, key: &K) -> bool {
+        !self.find(key).is_null()
     }
 
     pub fn insert_or_replace(&mut self, key: K, value: V) -> Option<(K, V)> {
