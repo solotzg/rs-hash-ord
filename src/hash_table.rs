@@ -421,17 +421,24 @@ impl<K, V> HashTable<K, V> where K: Ord + Hash {
         self.head_ptr().list_init();
         while !head_ptr.list_is_empty() {
             let index = head.next.hash_index_deref_mut();
-            let mut next = ptr::null_mut();
-            while index.avl_root_node().not_null() {
-                let node = unsafe { avl_node::avl_node_tear(index.avl_root_ptr(), &mut next as *mut AVLNodePtr) };
-                let snode = node.avl_hash_deref_mut::<K>();
-                self.hash_add(snode);
-            }
+            self.recursive_hash_add(index.avl_root_node());
             index.node_ptr().list_del_init();
         }
         return if old_index == self.init.as_mut_ptr() { ptr::null_mut() } else { old_index };
     }
 
+    fn recursive_hash_add(&mut self, node: AVLNodePtr) {
+        if node.left().not_null() {
+            self.recursive_hash_add(node.left());
+        }
+        if node.right().not_null() {
+            self.recursive_hash_add(node.right());
+        }
+        let snode = node.avl_hash_deref_mut::<K>();
+        self.hash_add(snode);
+    }
+
+    #[inline]
     pub fn rehash(&mut self, capacity: usize) {
         let index_size = self.index_size;
         let limit = (capacity * 6) / 4;

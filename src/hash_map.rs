@@ -136,6 +136,7 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
         let entry: *mut HashEntry<K, V> = hash_node.deref_to_hash_entry();
         self.entry_fastbin.del(entry as VoidPtr);
         let kv_ptr = key_deref_to_kv::<K, V>(hash_node.key_ptr());
+        unsafe { ptr::drop_in_place(kv_ptr); }
         self.kv_fastbin.del(kv_ptr as VoidPtr);
         self.hash_table.dec_count(1);
     }
@@ -379,6 +380,7 @@ mod test {
             *v *= -1;
         }
         assert_eq!(*m.get(&111).unwrap(), 111);
+        assert!(m.get(&-100).is_none());
     }
 
     #[test]
