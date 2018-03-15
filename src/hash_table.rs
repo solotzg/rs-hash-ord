@@ -14,17 +14,6 @@ pub type HashUint = usize;
 
 const AVL_HASH_INIT_SIZE: usize = 8;
 
-trait HashAVLRootOperation {
-    fn clear_all<K, V>(self);
-}
-
-impl HashAVLRootOperation for *mut AVLRoot {
-    fn clear_all<K, V>(self) {
-        unsafe { (*self).node.recurse_destroy::<K, V>(); }
-        unsafe { (*self).node = ptr::null_mut(); }
-    }
-}
-
 pub struct HashNode<K> {
     pub hash_val: HashUint,
     pub key: *const K,
@@ -69,7 +58,7 @@ trait ListHeadPtrOperateHashIndex {
 impl ListHeadPtrOperateHashIndex for *mut ListHead {
     #[inline]
     fn hash_index_deref_mut(self) -> *mut HashIndex {
-        entry_of!(self, HashIndex, node)
+        container_of!(self, HashIndex, node)
     }
 }
 
@@ -120,36 +109,24 @@ impl HashIndexPtrOperation for *mut HashIndex {
     }
 }
 
-pub struct HashTable<K, V> {
+pub struct HashTable<K, V> where K: Ord + Hash {
     count: usize,
     index_size: usize,
     index_mask: usize,
     head: ListHead,
-    pub index: *mut HashIndex,
-    pub init: [HashIndex; AVL_HASH_INIT_SIZE],
+    index: *mut HashIndex,
+    init: [HashIndex; AVL_HASH_INIT_SIZE],
     _marker: marker::PhantomData<(K, V)>,
 }
 
 pub trait HashNodeOperation {
     fn avl_hash_deref_mut<K>(self) -> *mut HashNode<K>;
-    fn recurse_destroy<K, V>(self);
 }
 
 impl HashNodeOperation for *mut AVLNode {
     #[inline]
     fn avl_hash_deref_mut<K>(self) -> *mut HashNode<K> {
         container_of!(self, HashNode<K>, avl_node)
-    }
-
-    fn recurse_destroy<K, V>(self) {
-        if self.left().is_null() {
-            self.left().recurse_destroy::<K, V>();
-        }
-        if self.right().is_null() {
-            self.right().recurse_destroy::<K, V>();
-        }
-        let hash_node = self.avl_hash_deref_mut::<K>();
-        unsafe { Box::from_raw(hash_node); }
     }
 }
 
@@ -162,13 +139,41 @@ pub fn make_hash<T: ?Sized, S>(hash_state: &S, t: &T) -> HashUint where T: Hash,
 
 impl<K, V> HashTable<K, V> where K: Ord + Hash {
     #[inline]
+    pub fn pop_first_index(&mut self) -> AVLNodePtr {
+        let head = self.head.next;
+        if self.head.is_eq_ptr(head) {
+            return ptr::null_mut()
+        }
+        let index = head.hash_index_deref_mut();
+        let avl_node = index.avl_root_node();
+        debug_assert!(avl_node.not_null());
+        index.set_avl_root_node(ptr::null_mut());
+        head.list_del_init();
+        avl_node
+    }
+
+    fn destroy(&mut self) {
+        let data_ptr = self.hash_swap(ptr::null_mut(), 0);
+        if !data_ptr.is_null() {
+            unsafe {Heap.dealloc(data_ptr as *mut u8, Layout::from_size_align_unchecked(
+                self.index_size * mem::size_of::<HashIndex>(), mem::align_of::<HashIndex>()
+            ));}
+        }
+    }
+
+    #[inline]
     pub fn size(&self) -> usize {
         self.count
     }
 
     #[inline]
-    pub fn inc_count(&mut self) {
-        self.count += 1;
+    pub fn inc_count(&mut self, cnt: usize) {
+        self.count += cnt;
+    }
+
+    #[inline]
+    pub fn dec_count(&mut self, cnt: usize) {
+        self.count -= cnt;
     }
 
     #[inline]
@@ -379,16 +384,6 @@ impl<K, V> HashTable<K, V> where K: Ord + Hash {
         unsafe { avl_node::avl_node_replace(tar.avl_node_ptr(), new_node.avl_node_ptr(), index.avl_root_ptr()); }
     }
 
-    #[inline]
-    fn hash_clear(&mut self) {
-        while !self.head_ptr().list_is_empty() {
-            let index = self.head.next.hash_index_deref_mut();
-            index.avl_root_ptr().clear_all::<K, V>();
-            index.node_ptr().list_del_init();
-        }
-        self.count = 0;
-    }
-
     pub fn hash_swap(&mut self, mut new_index: *mut HashIndex, nbytes: usize) -> *mut HashIndex {
         let old_index = self.index;
         let mut index_size = 1;
@@ -456,6 +451,12 @@ impl<K, V> HashTable<K, V> where K: Ord + Hash {
                 ));}
             }
         }
+    }
+}
+
+impl <K, V> Drop for HashTable<K, V> where K: Ord + Hash {
+    fn drop(&mut self) {
+        self.destroy();
     }
 }
 

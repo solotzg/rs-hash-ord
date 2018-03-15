@@ -26,11 +26,17 @@ struct HashEntry<K, V> {
     value: *mut V,
 }
 
+#[inline]
+fn key_deref_to_kv<K, V> (key: *const K) -> *mut (K, V) {
+    (key as isize - unsafe {&(*(0 as *const (K, V))).0 as *const _ as isize}) as *mut (K, V)
+}
+
 trait HashEntryBase<K, V> {
     fn node_ptr(self) -> *mut HashNode<K>;
     fn value(self) -> *mut V;
     fn set_value(self, value: *mut V);
     fn key(self) -> *const K;
+    fn set_key(self, key: *const K);
 }
 
 impl<K, V> HashEntryBase<K, V> for *mut HashEntry<K, V> {
@@ -49,6 +55,10 @@ impl<K, V> HashEntryBase<K, V> for *mut HashEntry<K, V> {
     #[inline]
     fn key(self) -> *const K {
         unsafe { (*self).node.key }
+    }
+    #[inline]
+    fn set_key(self, key: *const K) {
+        unsafe { (*self).node.key = key; }
     }
 }
 
@@ -115,11 +125,26 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
         map
     }
 
-    fn clear(&mut self) {
+    fn recurse_destroy(&mut self, node: avl_node::AVLNodePtr) {
+        if node.left().not_null() {
+            self.recurse_destroy(node.left());
+        }
+        if node.right().not_null() {
+            self.recurse_destroy(node.right());
+        }
+        let hash_node = node.avl_hash_deref_mut::<K>();
+        let entry: *mut HashEntry<K, V> = hash_node.deref_to_hash_entry();
+        self.entry_fastbin.del(entry as VoidPtr);
+        let kv_ptr = key_deref_to_kv::<K, V>(hash_node.key_ptr());
+        self.kv_fastbin.del(kv_ptr as VoidPtr);
+        self.hash_table.dec_count(1);
+    }
+
+    fn clear_hash_entry(&mut self) {
         loop {
-            let entry = self.first();
-            if entry.is_null() { break; }
-            self.erase(entry, false);
+            let node = self.hash_table.pop_first_index();
+            if node.is_null() {break;}
+            self.recurse_destroy(node);
         }
         debug_assert_eq!(self.hash_table.size(), 0);
     }
@@ -129,36 +154,23 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
         self.hash_table.size()
     }
 
-    fn erase(&mut self, entry: *mut HashEntry<K, V>, need_ret: bool) -> Option<(K, V)> {
+    fn erase(&mut self, entry: *mut HashEntry<K, V>) -> Option<(K, V)> {
         debug_assert!(!entry.is_null());
         debug_assert!(!entry.node_ptr().avl_node_ptr().empty());
         self.hash_table.hash_erase(entry.node_ptr());
         entry.node_ptr().avl_node_ptr().init();
-        let kv = entry.node_ptr().key_ptr() as *mut (K, V);
+        let kv = key_deref_to_kv::<K, V>(entry.key());
         entry.node_ptr().set_key_ptr(ptr::null());
         entry.set_value(ptr::null_mut());
         self.entry_fastbin.del(entry as VoidPtr);
-        if !need_ret {
-            self.kv_fastbin.del(kv as VoidPtr);
-            None
-        } else {
-            unsafe {
-                let key = &mut (*kv).0 as *mut K;
-                let value = &mut (*kv).1 as *mut V;
-                let res = Some((ptr::read(key), ptr::read(value)));
-                self.kv_fastbin.del(kv as VoidPtr);
-                res
-            }
-        }
+        let res = unsafe {Some((ptr::read(&mut (*kv).0 as *mut K), ptr::read(&mut (*kv).1 as *mut V)))};
+        self.kv_fastbin.del(kv as VoidPtr);
+        res
     }
 
     #[inline]
     fn destroy(&mut self) {
-        self.clear();
-        let ptr = self.hash_table.hash_swap(ptr::null_mut(), 0);
-        if !ptr.is_null() {
-            unsafe { Box::from_raw(ptr); }
-        }
+        self.clear_hash_entry();
         self.entry_fastbin.destroy();
         self.kv_fastbin.destroy();
     }
@@ -204,15 +216,15 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
     fn kv_alloc(&mut self, key: K, value: V) -> (*mut K, *mut V) {
         let kv = self.kv_fastbin.alloc() as *mut (K, V);
         unsafe {
-            let key_ptr = unsafe {&mut (*kv).0 as *mut K};
-            let value_ptr = unsafe {&mut (*kv).1 as *mut V};
+            let key_ptr = &mut (*kv).0 as *mut K;
+            let value_ptr = &mut (*kv).1 as *mut V;
             ptr::write(key_ptr, key);
             ptr::write(value_ptr, value);
             (key_ptr, value_ptr)
         }
     }
 
-    unsafe fn update(&mut self, key: *const K, value: *mut V, update: bool) -> *mut HashEntry<K, V> {
+    unsafe fn update(&mut self, key: *const K, value: *mut V, update: bool, old_kv_ptr: &mut *mut (K, V)) -> *mut HashEntry<K, V> {
         let hash_val = self.make_hash(&(*key));
         let index = self.hash_table.get_hash_index(hash_val);
         let mut link = index.avl_root_node_ptr();
@@ -223,7 +235,7 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
             entry.node_ptr().set_hash_val(hash_val);
             index.set_avl_root_node(entry.node_ptr().avl_node_ptr());
             self.hash_table.head_ptr().list_add_tail(index.node_ptr());
-            self.hash_table.inc_count();
+            self.hash_table.inc_count(1);
             return entry;
         }
         while !(*link).is_null() {
@@ -237,7 +249,8 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
                     Ordering::Equal => {
                         let entry = snode.deref_to_hash_entry();
                         if update {
-                            Box::from_raw(entry.value());
+                            *old_kv_ptr = key_deref_to_kv::<K, V>(entry.key());
+                            entry.set_key(key);
                             entry.set_value(value);
                         }
                         return entry;
@@ -257,7 +270,7 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
         entry.node_ptr().set_hash_val(hash_val);
         avl_node::link_node(entry.node_ptr().avl_node_ptr(), parent, link);
         avl_node::node_post_insert(entry.node_ptr().avl_node_ptr(), index.avl_root_ptr());
-        self.hash_table.inc_count();
+        self.hash_table.inc_count(1);
         entry
     }
 
@@ -272,10 +285,22 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
 
     #[inline]
     pub fn insert(&mut self, key: K, value: V) {
+        self.insert_or_replace(key, value);
+    }
+
+    pub fn insert_or_replace(&mut self, key: K, value: V) -> Option<(K, V)> {
         let (key_ptr, value_ptr) = self.kv_alloc(key, value);
-        unsafe { self.update(key_ptr, value_ptr, false) };
+        let mut old_kv_ptr = ptr::null_mut();
+        unsafe { self.update(key_ptr, value_ptr, true, &mut old_kv_ptr) };
         let cap = self.hash_table.count();
         self.rehash(cap);
+        if old_kv_ptr.is_null() {
+            None
+        } else {
+            let res = unsafe {Some(ptr::read(old_kv_ptr))};
+            self.kv_fastbin.del(old_kv_ptr as VoidPtr);
+            res
+        }
     }
 
     pub fn pop(&mut self, key: &K) -> Option<(K, V)> {
@@ -283,7 +308,7 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
         if entry.is_null() {
             return None;
         }
-        self.erase(entry, true)
+        self.erase(entry)
     }
 }
 
@@ -321,8 +346,7 @@ impl<K, V, S> Drop for HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
 fn just_for_compile() {}
 
 mod test {
-    use hash_map::{HashMap, HashEntryBase};
-    use std::collections::hash_map::RandomState;
+    use hash_map::{HashMap};
 
     #[test]
     fn test_hash_map() {
@@ -336,6 +360,13 @@ mod test {
         while !a.is_null() {
             cnt += 1;
             a = m.next(a);
+        }
+        assert_eq!(cnt, m.size());
+        let mut a = m.last();
+        let mut cnt = 0;
+        while !a.is_null() {
+            cnt += 1;
+            a = m.prev(a);
         }
         assert_eq!(cnt, m.size());
         assert_eq!(*m.get(&111).unwrap(), -111);
