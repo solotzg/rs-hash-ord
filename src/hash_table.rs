@@ -9,6 +9,7 @@ use std::hash::Hash;
 use std::hash::BuildHasher;
 use std::hash::Hasher;
 use std::heap::{Heap, Alloc, Layout};
+use std::cmp;
 
 pub type HashUint = usize;
 
@@ -138,6 +139,17 @@ pub fn make_hash<T: ?Sized, S>(hash_state: &S, t: &T) -> HashUint where T: Hash,
 }
 
 impl<K, V> HashTable<K, V> where K: Ord + Hash {
+
+    pub fn get_max_node_of_single_index(&self) -> i32 {
+        let mut head = self.head.next;
+        let mut num = 0;
+        while !self.head.is_eq_ptr(head) {
+            num = cmp::max(num, head.hash_index_deref_mut().avl_root_node().get_node_num());
+            head = head.next();
+        }
+        num
+    }
+
     #[inline]
     pub fn pop_first_index(&mut self) -> AVLNodePtr {
         let head = self.head.next;

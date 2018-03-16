@@ -1,5 +1,5 @@
 use std::ptr;
-use std::cmp::{max};
+use std::cmp::max;
 
 pub struct AVLNode {
     left: AVLNodePtr,
@@ -15,7 +15,7 @@ pub struct AVLRoot {
 
 impl Default for AVLRoot {
     fn default() -> Self {
-        AVLRoot{ node: ptr::null_mut() }
+        AVLRoot { node: ptr::null_mut() }
     }
 }
 
@@ -57,6 +57,8 @@ pub trait AVLNodePtrBase {
     fn init(self);
     fn empty(self) -> bool;
     fn reset(self, left: AVLNodePtr, right: AVLNodePtr, parent: AVLNodePtr, height: i32);
+    fn check_valid(self) -> bool;
+    fn get_node_num(self) -> i32;
 }
 
 impl AVLNodePtrBase for *mut AVLNode {
@@ -239,6 +241,22 @@ impl AVLNodePtrBase for *mut AVLNode {
         self.set_parent(parent);
         self.set_height(height);
     }
+
+    fn check_valid(self) -> bool {
+        use std::cmp;
+        if self.is_null() { return true; }
+        let h0 = self.left_height();
+        let h1 = self.right_height();
+        let diff = h0 - h1;
+        if self.height() != cmp::max(h0, h1) + 1 { return false; }
+        if diff < -1 || diff > 1 { return false; }
+        self.left().check_valid() && self.right().check_valid()
+    }
+
+    fn get_node_num(self) -> i32 {
+        if self.is_null() {return 0;}
+        self.left().get_node_num() + self.right().get_node_num() + 1
+    }
 }
 
 #[inline]
@@ -420,8 +438,8 @@ pub unsafe fn node_post_insert(mut node: AVLNodePtr, root: AVLRootPtr) {
 pub unsafe fn avl_node_replace(tar: AVLNodePtr, new_node: AVLNodePtr, root: AVLRootPtr) {
     let parent = tar.parent();
     child_replace(tar, new_node, parent, root);
-    if tar.left().not_null() {tar.left().set_parent(new_node);}
-    if tar.right().not_null() {tar.right().set_parent(new_node);}
+    if tar.left().not_null() { tar.left().set_parent(new_node); }
+    if tar.right().not_null() { tar.right().set_parent(new_node); }
     new_node.set_left(tar.left());
     new_node.set_right(tar.right());
     new_node.set_parent(tar.parent());

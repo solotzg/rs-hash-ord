@@ -40,7 +40,7 @@ fn bench_avl_build_pop(b: &mut test::Bencher) {
             t.insert(*num, -(*num));
         }
         for num in &v {
-            t.pop(num);
+            t.remove(num);
         }
     });
 }
@@ -58,7 +58,7 @@ fn bench_avl_build_find_pop(b: &mut test::Bencher) {
             t.get_ref(num).is_some();
         }
         for num in &v {
-            t.pop(num);
+            t.remove(num);
         }
     });
 }

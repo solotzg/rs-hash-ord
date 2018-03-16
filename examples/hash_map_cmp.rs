@@ -62,6 +62,8 @@ fn test_hash_avl_map(max_num: usize, v: &Vec<i32>) {
     let duration = time::now() - start;
     println!("insert time {}", duration);
 
+    println!("max node num of single index: {}", map.get_max_node_of_single_index());
+
     let start = time::now();
     let mut cnt = 0;
     for i in v {
@@ -72,7 +74,7 @@ fn test_hash_avl_map(max_num: usize, v: &Vec<i32>) {
 
     let start = time::now();
     for i in v {
-        map.pop(&i.to_string());
+        map.remove(&i.to_string());
     }
     let duration = time::now() - start;
     println!("remove time {}", duration);

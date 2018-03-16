@@ -27,8 +27,8 @@ struct HashEntry<K, V> {
 }
 
 #[inline]
-fn key_deref_to_kv<K, V> (key: *const K) -> *mut (K, V) {
-    (key as isize - unsafe {&(*(0 as *const (K, V))).0 as *const _ as isize}) as *mut (K, V)
+fn key_deref_to_kv<K, V>(key: *const K) -> *mut (K, V) {
+    (key as isize - unsafe { &(*(0 as *const (K, V))).0 as *const _ as isize }) as *mut (K, V)
 }
 
 trait HashEntryBase<K, V> {
@@ -73,6 +73,11 @@ impl<K, V> HashNodeDerefToHashEntry<K, V> for *mut HashNode<K> {
 }
 
 impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
+    #[inline]
+    pub fn get_max_node_of_single_index(&self) -> i32 {
+        self.hash_table.get_max_node_of_single_index()
+    }
+
     #[inline]
     fn make_hash<X: ? Sized>(&self, x: &X) -> HashUint where X: Hash {
         hash_table::make_hash(&self.hash_builder, x)
@@ -144,7 +149,7 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
     fn clear_hash_entry(&mut self) {
         loop {
             let node = self.hash_table.pop_first_index();
-            if node.is_null() {break;}
+            if node.is_null() { break; }
             self.recurse_destroy(node);
         }
         debug_assert_eq!(self.hash_table.size(), 0);
@@ -164,7 +169,7 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
         entry.node_ptr().set_key_ptr(ptr::null());
         entry.set_value(ptr::null_mut());
         self.entry_fastbin.del(entry as VoidPtr);
-        let res = unsafe {Some(ptr::read(kv))};
+        let res = unsafe { Some(ptr::read(kv)) };
         self.kv_fastbin.del(kv as VoidPtr);
         res
     }
@@ -298,13 +303,13 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
         if old_kv_ptr.is_null() {
             None
         } else {
-            let res = unsafe {Some(ptr::read(old_kv_ptr))};
+            let res = unsafe { Some(ptr::read(old_kv_ptr)) };
             self.kv_fastbin.del(old_kv_ptr as VoidPtr);
             res
         }
     }
 
-    pub fn pop(&mut self, key: &K) -> Option<(K, V)> {
+    pub fn remove(&mut self, key: &K) -> Option<(K, V)> {
         let entry = self.find(key);
         if entry.is_null() {
             return None;
@@ -345,7 +350,8 @@ impl<K, V, S> Drop for HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
 
 #[cfg(test)]
 mod test {
-    use hash_map::{HashMap};
+    use hash_map::HashMap;
+    use std::cell::RefCell;
 
     #[test]
     fn test_hash_map() {
@@ -378,17 +384,29 @@ mod test {
     }
 
     #[test]
-    fn test_hash_map_pop() {
-        let mut m = HashMap::new();
-        for i in 100..200 {
-            m.insert(i, Some('1'));
+    fn test_hash_map_remove() {
+        struct Node<'a> {
+            b: &'a RefCell<i32>,
         }
-        for i in 100..200 {
-            let kv = m.pop(&i);
-            assert!(kv.is_some());
-            let tp = kv.unwrap();
-            assert_eq!(tp.0, i);
-            assert_eq!(tp.1, Some('1'));
+        impl<'a> Drop for Node<'a> {
+            fn drop(&mut self) {
+                *self.b.borrow_mut() += 1;
+            }
         }
+        let cnt = RefCell::new(0);
+        let test_num = 199;
+        let mut map = HashMap::new();
+        for i in 0..test_num {
+            map.insert(i, Node { b: &cnt });
+        }
+        assert_eq!(*cnt.borrow(), 0);
+        for i in 0..test_num/2 {
+            map.remove(&i);
+        }
+        assert_eq!(*cnt.borrow(), test_num/2);
+        for i in test_num/2..test_num {
+            map.insert_or_replace(i, Node { b: &cnt });
+        }
+        assert_eq!(*cnt.borrow(), test_num);
     }
 }

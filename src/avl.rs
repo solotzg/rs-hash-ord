@@ -7,20 +7,20 @@ use avl_node::{AVLNodePtr, AVLNode, AVLNodePtrBase, AVLRoot, AVLRootPtr};
 use avl_node;
 use std::ptr;
 
-pub struct DataNode<K, V> {
+pub struct AVLEntry<K, V> {
     node_ptr: AVLNode,
     key: K,
     value: V,
 }
 
-impl<K, V> DataNode<K, V> {
+impl<K, V> AVLEntry<K, V> {
     #[inline]
     fn get_pair(self) -> (K, V) {
         (self.key, self.value)
     }
 }
 
-trait AVLDataNodeOperation {
+trait AVLTreeNodeOperation {
     fn deep_clone<K, V>(node: AVLNodePtr, parent: AVLNodePtr) -> AVLNodePtr where K: Clone, V: Clone;
     fn key_ref<'a, K, V>(self) -> &'a K;
     fn value_ref<'a, K, V>(self) -> &'a V;
@@ -29,10 +29,10 @@ trait AVLDataNodeOperation {
     fn destroy<K, V>(self);
     fn new<K, V>(k: K, v: V) -> AVLNodePtr;
     fn set_value<K, V>(self, value: V);
-    fn avl_data_node_deref_mut<K, V>(self) -> *mut DataNode<K, V>;
+    fn avl_node_deref_to_entry<K, V>(self) -> *mut AVLEntry<K, V>;
 }
 
-impl AVLDataNodeOperation for *mut AVLNode {
+impl AVLTreeNodeOperation for *mut AVLNode {
     fn deep_clone<K, V>(node: AVLNodePtr, parent: AVLNodePtr) -> AVLNodePtr where K: Clone, V: Clone {
         if node.is_null() {
             return node;
@@ -47,23 +47,23 @@ impl AVLDataNodeOperation for *mut AVLNode {
 
     #[inline]
     fn key_ref<'a, K, V>(self) -> &'a K {
-        unsafe { &(*self.avl_data_node_deref_mut::<K, V>()).key }
+        unsafe { &(*self.avl_node_deref_to_entry::<K, V>()).key }
     }
 
     #[inline]
     fn value_ref<'a, K, V>(self) -> &'a V {
-        unsafe { &(*self.avl_data_node_deref_mut::<K, V>()).value }
+        unsafe { &(*self.avl_node_deref_to_entry::<K, V>()).value }
     }
 
     #[inline]
     fn value_mut<'a, K, V>(self) -> &'a mut V {
-        unsafe { &mut (*self.avl_data_node_deref_mut::<K, V>()).value }
+        unsafe { &mut (*self.avl_node_deref_to_entry::<K, V>()).value }
     }
 
     #[inline]
     fn get_pair<K, V>(self) -> (K, V) {
         unsafe {
-            let data_ptr = self.avl_data_node_deref_mut::<K, V>();
+            let data_ptr = self.avl_node_deref_to_entry::<K, V>();
             Box::from_raw(data_ptr).get_pair()
         }
     }
@@ -71,14 +71,14 @@ impl AVLDataNodeOperation for *mut AVLNode {
     #[inline]
     fn destroy<K, V>(self) {
         unsafe {
-            let data_ptr = self.avl_data_node_deref_mut::<K, V>();
+            let data_ptr = self.avl_node_deref_to_entry::<K, V>();
             Box::from_raw(data_ptr);
         }
     }
 
     #[inline]
     fn new<K, V>(k: K, v: V) -> AVLNodePtr {
-        let ptr = Box::into_raw(Box::new(DataNode::<K, V> {
+        let ptr = Box::into_raw(Box::new(AVLEntry::<K, V> {
             key: k,
             value: v,
             node_ptr: AVLNode::default(),
@@ -88,12 +88,12 @@ impl AVLDataNodeOperation for *mut AVLNode {
 
     #[inline]
     fn set_value<K, V>(self, value: V) {
-        unsafe { (*self.avl_data_node_deref_mut::<K, V>()).value = value; }
+        unsafe { (*self.avl_node_deref_to_entry::<K, V>()).value = value; }
     }
 
     #[inline]
-    fn avl_data_node_deref_mut<K, V>(self) -> *mut DataNode<K, V> {
-        container_of!(self, DataNode<K, V>, node_ptr)
+    fn avl_node_deref_to_entry<K, V>(self) -> *mut AVLEntry<K, V> {
+        container_of!(self, AVLEntry<K, V>, node_ptr)
     }
 }
 
@@ -199,7 +199,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
 
     #[inline]
     pub fn new() -> Self {
-        AVLTree { root: AVLRoot { node: ptr::null_mut() }, count: 0, _marker: marker::PhantomData }
+        AVLTree { root: Default::default(), count: 0, _marker: marker::PhantomData }
     }
 
     #[inline]
@@ -271,6 +271,10 @@ impl<K, V> AVLTree<K, V> where K: Ord {
         self.root.node.isomorphic(t.root.node)
     }
 
+    fn check_valid(&self) -> bool {
+        self.root.node.check_valid()
+    }
+
     fn bst_check(&self) -> bool {
         let mut iter = self.iter();
         let first = iter.next();
@@ -330,7 +334,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     }
 
     #[inline]
-    pub fn pop(&mut self, what: &K) -> Option<(K, V)> {
+    pub fn remove(&mut self, what: &K) -> Option<(K, V)> {
         unsafe {
             let node = self.find_node(what);
             if node.is_null() {
@@ -774,8 +778,9 @@ pub mod test {
 
     use avl::AVLTree;
     use std::cmp::Ordering;
-    use avl::AVLDataNodeOperation;
+    use avl::AVLTreeNodeOperation;
     use avl_node::AVLNodePtrBase;
+    use std::cell::RefCell;
 
     type DefaultType = AVLTree<i32, Option<i32>>;
 
@@ -811,7 +816,7 @@ pub mod test {
         for _ in 0..60 {
             let x = (rand::random::<usize>() % test_num) as i32;
             unsafe {
-                match t.pop(&x) {
+                match t.remove(&x) {
                     None => {}
                     Some((k, v)) => {
                         assert_eq!(v.unwrap(), -x);
@@ -823,6 +828,7 @@ pub mod test {
         }
         assert!(t.bst_check());
         assert!(t.bst_check_reverse());
+        assert!(t.check_valid());
     }
 
     #[test]
@@ -948,6 +954,7 @@ pub mod test {
 
         assert!(t.bst_check());
         assert!(t.bst_check_reverse());
+        assert!(t.check_valid());
     }
 
     #[test]
@@ -1069,6 +1076,33 @@ pub mod test {
             let cursors = AVLTree::find_cursors(&mut t, &55);
             assert!(cursors.get_ref().is_none());
         }
+    }
+
+    #[test]
+    fn test_memory_leak() {
+        struct Node<'a> {
+            b: &'a RefCell<i32>,
+        }
+        impl<'a> Drop for Node<'a> {
+            fn drop(&mut self) {
+                *self.b.borrow_mut() += 1;
+            }
+        }
+        let cnt = RefCell::new(0);
+        let test_num = 199;
+        let mut map = AVLTree::new();
+        for i in 0..test_num {
+            map.insert(i, Node { b: &cnt });
+        }
+        assert_eq!(*cnt.borrow(), 0);
+        for i in 0..test_num/2 {
+            map.remove(&i);
+        }
+        assert_eq!(*cnt.borrow(), test_num/2);
+        for i in test_num/2..test_num {
+            map.insert_or_replace(i, Node { b: &cnt });
+        }
+        assert_eq!(*cnt.borrow(), test_num);
     }
 }
 
