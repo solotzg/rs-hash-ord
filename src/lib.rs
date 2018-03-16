@@ -1,5 +1,5 @@
 #![feature(allocator_api)]
-
+#![allow(dead_code)]
 #[macro_use] pub mod macros;
 pub mod avl;
 pub mod hash_table;

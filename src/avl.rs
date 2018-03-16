@@ -768,6 +768,7 @@ impl<K: Ord, V> IntoIterator for AVLTree<K, V> {
     }
 }
 
+#[cfg(test)]
 pub mod test {
     extern crate rand;
 

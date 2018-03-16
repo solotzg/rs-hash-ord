@@ -1,10 +1,11 @@
 # Performance Competition
-AVL is not worse than RBTree 
-## Compare with RBTree
+AVL is not worse than RBTree, and this's a feasible measure to resolve Hash Collision.
+# Environment
 ```
 Linux version 4.4.0-1049-aws (buildd@lcy01-amd64-001) (gcc version 5.4.0 20160609 (Ubuntu 5.4.0-6ubuntu1~16.04.5) )
 Intel(R) Xeon(R) CPU E5-2676 v3 @ 2.40GHz
 ```
+## AVL Compare with RBTree
 ```
 avl tree
 size 100000
@@ -83,5 +84,18 @@ build avl time PT16.647625118S
 contain count 10000000
 find avl time PT10.369277327S 
 tol_time PT29.805170112S
+--------------------------------
+```
+## Use AVL to resolve Hash Collision
+```
+test hash avl map
+insert time PT1.662319367S
+find 5000000, time PT1.308001146S
+remove time PT1.695139219S
+
+test stl hash map
+insert time PT2.115314821S
+find 5000000, time PT1.418458063S
+remove time PT1.596860496S
 --------------------------------
 ```

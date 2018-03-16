@@ -464,6 +464,3 @@ impl <K, V> Drop for HashTable<K, V> where K: Ord + Hash {
         self.destroy();
     }
 }
-
-#[test]
-fn just_for_compile() {}

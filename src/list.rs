@@ -106,6 +106,7 @@ impl ListHeadPtrFn for *mut ListHead {
     }
 }
 
+#[cfg(test)]
 mod test {
     use list::{ListHead, ListHeadPtr, ListHeadPtrFn};
     use std::ptr;

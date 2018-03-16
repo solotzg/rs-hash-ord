@@ -1,9 +1,20 @@
 extern crate hash_avl;
 extern crate time;
 extern crate avl_tree;
+extern crate rand;
 
 use hash_avl::avl::AVLTree as Tree;
-use hash_avl::avl::test::default_make_avl_element;
+
+pub fn default_make_avl_element(n: usize) -> Vec<i32> {
+    let mut v = vec![0i32; n];
+    for idx in 0..v.len() {
+        v[idx] = idx as i32;
+        let pos = rand::random::<usize>() % (idx + 1);
+        assert!(pos <= idx);
+        v.swap(idx, pos);
+    }
+    v
+}
 
 fn main() {
     run(1000_000);

@@ -274,7 +274,7 @@ fn round_up_to_next(unrounded: usize, target_alignment: usize) -> usize {
     (unrounded + target_alignment - 1) & !(target_alignment - 1)
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 mod test {
     use fastbin;
     use fastbin::Fastbin;

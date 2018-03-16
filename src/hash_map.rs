@@ -343,9 +343,7 @@ impl<K, V, S> Drop for HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
     }
 }
 
-#[test]
-fn just_for_compile() {}
-
+#[cfg(test)]
 mod test {
     use hash_map::{HashMap};
 

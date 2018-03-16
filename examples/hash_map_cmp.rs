@@ -1,63 +1,77 @@
 extern crate hash_avl;
 extern crate time;
+extern crate rand;
 
 use hash_avl::hash_map;
 use std::collections::HashMap as STLHashMap;
 
-fn main() {
-    let max_num = 2_000_000;
-    test_hash_avl_map(max_num);
-    test_stl_hash_map(max_num);
+pub fn default_make_avl_element(n: usize) -> Vec<i32> {
+    let mut v = vec![0i32; n];
+    for idx in 0..v.len() {
+        v[idx] = idx as i32;
+        let pos = rand::random::<usize>() % (idx + 1);
+        assert!(pos <= idx);
+        v.swap(idx, pos);
+    }
+    v
 }
 
-fn test_stl_hash_map(max_num: isize) {
+fn main() {
+    let max_num = 5_000_000;
+    let v = default_make_avl_element(max_num);
+    test_hash_avl_map(max_num, &v);
+    test_stl_hash_map(max_num, &v);
+    println!("--------------------------------");
+}
+
+fn test_stl_hash_map(max_num: usize, v: &Vec<i32>) {
     println!("\ntest stl hash map");
     let mut map = STLHashMap::new();
-    map.reserve(max_num as usize);
+    map.reserve(max_num);
     let start = time::now();
-    for i in 0..max_num {
-        map.insert(i.to_string(), -i);
+    for i in v {
+        map.insert(i.to_string(), -*i);
     }
     let duration = time::now() - start;
     println!("insert time {}", duration);
 
     let start = time::now();
     let mut cnt = 0;
-    for i in 0..max_num {
+    for i in v {
         cnt += if map.get(&i.to_string()).is_none() {0} else {1};
     }
     let duration = time::now() - start;
     println!("find {}, time {}", cnt, duration);
 
     let start = time::now();
-    for i in 0..max_num {
+    for i in v {
         map.remove(&i.to_string());
     }
     let duration = time::now() - start;
     println!("remove time {}", duration);
 }
 
-fn test_hash_avl_map(max_num: isize) {
+fn test_hash_avl_map(max_num: usize, v: &Vec<i32>) {
     println!("\ntest hash avl map");
     let mut map = hash_map::HashMap::new();
-    map.reserve(max_num as usize);
+    map.reserve(max_num);
     let start = time::now();
-    for i in 0..max_num {
-        map.insert(i.to_string(), -i);
+    for i in v {
+        map.insert(i.to_string(), -*i);
     }
     let duration = time::now() - start;
     println!("insert time {}", duration);
 
     let start = time::now();
     let mut cnt = 0;
-    for i in 0..max_num {
+    for i in v {
         cnt += if map.get(&i.to_string()).is_none() {0} else {1};
     }
     let duration = time::now() - start;
     println!("find {}, time {}", cnt, duration);
 
     let start = time::now();
-    for i in 0..max_num {
+    for i in v {
         map.pop(&i.to_string());
     }
     let duration = time::now() - start;
