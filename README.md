@@ -89,13 +89,14 @@ tol_time PT29.805170112S
 ## Use AVL to resolve Hash Collision
 ```
 test hash avl map
-insert time PT1.662319367S
-find 5000000, time PT1.308001146S
-remove time PT1.695139219S
+insert time PT1.532513279S
+max node num of single index: 8
+find 5000000, time PT1.357764873S
+remove time PT1.655397891S
 
 test stl hash map
-insert time PT2.115314821S
-find 5000000, time PT1.418458063S
-remove time PT1.596860496S
+insert time PT2.101090628S
+find 5000000, time PT1.425694606S
+remove time PT1.577394663S
 --------------------------------
 ```
