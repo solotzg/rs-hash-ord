@@ -6,7 +6,7 @@ use std::mem;
 pub type VoidPtr = *mut u8;
 
 const VOID_PTR_NULL: VoidPtr = 0 as VoidPtr;
-const MAXIMUM_PAGE_SIZE: usize = 1usize << 16;
+const MAXIMUM_PAGE_SIZE: usize = 1usize << 16; // default maximum page size is 64k
 const PAGE_OBJ_CNT: usize = 1usize << 5;
 
 pub struct Fastbin {
@@ -22,16 +22,9 @@ pub struct Fastbin {
 
 impl Default for Fastbin {
     fn default() -> Self {
-        Fastbin {
-            obj_size: 0,
-            page_size: 0,
-            align: 0,
-            maximum: MAXIMUM_PAGE_SIZE, // default maximum page size is 64k
-            start: VOID_PTR_NULL,
-            end: VOID_PTR_NULL,
-            next: VOID_PTR_NULL,
-            pages: VOID_PTR_NULL,
-        }
+        let mut fastbin = unsafe { mem::uninitialized::<Fastbin>() };
+        fastbin.reset();
+        fastbin
     }
 }
 
@@ -58,8 +51,31 @@ impl Fastbin {
     }
 
     #[inline]
-    pub fn destroy(&mut self) {
+    fn destroy(&mut self) {
         (self as FastbinPtr).fastbin_destroy();
+    }
+
+    fn reset(&mut self) {
+        self.obj_size = 0;
+        self.page_size = 0;
+        self.align = 0;
+        self.maximum = MAXIMUM_PAGE_SIZE;
+        self.start = VOID_PTR_NULL;
+        self.end = VOID_PTR_NULL;
+        self.next = VOID_PTR_NULL;
+        self.pages = VOID_PTR_NULL;
+    }
+
+    pub fn move_to(&mut self) -> Self {
+        let mut fastbin = Fastbin::default();
+        mem::swap(&mut fastbin, self);
+        fastbin
+    }
+}
+
+impl Drop for Fastbin {
+    fn drop(&mut self) {
+        self.destroy();
     }
 }
 

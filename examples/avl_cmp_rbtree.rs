@@ -52,6 +52,7 @@ fn run(n: usize) {
     tol_time = tol_time + duration;
     println!("tol_time {}", tol_time);
 
+    drop(t);
 
     println!("\nrbtree");
     let mut tol_time = time::Duration::zero();

@@ -146,7 +146,7 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
         self.hash_table.dec_count(1);
     }
 
-    fn clear_hash_entry(&mut self) {
+    pub fn clear(&mut self) {
         loop {
             let node = self.hash_table.pop_first_index();
             if node.is_null() { break; }
@@ -176,9 +176,7 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
 
     #[inline]
     fn destroy(&mut self) {
-        self.clear_hash_entry();
-        self.entry_fastbin.destroy();
-        self.kv_fastbin.destroy();
+        self.clear();
     }
 
     #[inline]
@@ -207,6 +205,7 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
         unsafe { Some(&mut (*entry.value())) }
     }
 
+    #[inline]
     fn entry_alloc(&mut self, key: *const K, value: *mut V) -> *mut HashEntry<K, V> {
         let entry = self.entry_fastbin.alloc() as *mut HashEntry<K, V>;
         debug_assert!(!entry.is_null());
@@ -215,6 +214,7 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
         entry
     }
 
+    #[inline]
     fn kv_alloc(&mut self, key: K, value: V) -> (*mut K, *mut V) {
         let kv = self.kv_fastbin.alloc() as *mut (K, V);
         unsafe {
@@ -285,16 +285,11 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
         self.rehash(capacity);
     }
 
-    #[inline]
-    pub fn insert(&mut self, key: K, value: V) {
-        self.insert_or_replace(key, value);
-    }
-
     pub fn contain(&self, key: &K) -> bool {
         !self.find(key).is_null()
     }
 
-    pub fn insert_or_replace(&mut self, key: K, value: V) -> Option<(K, V)> {
+    pub fn insert(&mut self, key: K, value: V) -> Option<(K, V)> {
         let (key_ptr, value_ptr) = self.kv_alloc(key, value);
         let mut old_kv_ptr = ptr::null_mut();
         unsafe { self.update(key_ptr, value_ptr, true, &mut old_kv_ptr) };
@@ -405,8 +400,33 @@ mod test {
         }
         assert_eq!(*cnt.borrow(), test_num/2);
         for i in test_num/2..test_num {
-            map.insert_or_replace(i, Node { b: &cnt });
+            map.insert(i, Node { b: &cnt });
         }
+        assert_eq!(*cnt.borrow(), test_num);
+    }
+
+    #[test]
+    fn test_hash_map_clear() {
+        struct Node<'a> {
+            b: &'a RefCell<i32>,
+        }
+        impl<'a> Drop for Node<'a> {
+            fn drop(&mut self) {
+                *self.b.borrow_mut() += 1;
+            }
+        }
+        let cnt = RefCell::new(0);
+        let test_num = 199;
+        let mut map = HashMap::new();
+        for i in 0..test_num {
+            map.insert(i, Node { b: &cnt });
+        }
+        assert_eq!(*cnt.borrow(), 0);
+        for i in 0..test_num/2 {
+            map.remove(&i);
+        }
+        assert_eq!(*cnt.borrow(), test_num/2);
+        map.clear();
         assert_eq!(*cnt.borrow(), test_num);
     }
 }

@@ -26,7 +26,7 @@ fn bench_avl_find(b: &mut test::Bencher) {
     let n = 10_000_000;
     let t = default_build_avl(n);
     b.iter(|| {
-        t.get_ref(&-1).is_some()
+        t.get(&-1).is_some()
     });
 }
 
@@ -55,7 +55,7 @@ fn bench_avl_build_find_pop(b: &mut test::Bencher) {
             t.insert(*num, -(*num));
         }
         for num in &v {
-            t.get_ref(num).is_some();
+            t.get(num).is_some();
         }
         for num in &v {
             t.remove(num);

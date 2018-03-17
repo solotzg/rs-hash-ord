@@ -192,6 +192,7 @@ impl<K, V> HashTable<K, V> where K: Ord + Hash {
     pub fn count(&self) -> usize {
         self.count
     }
+
     pub fn new() -> Self {
         HashTable {
             count: 0,
