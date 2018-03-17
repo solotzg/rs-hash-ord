@@ -8,82 +8,65 @@ Intel(R) Xeon(R) CPU E5-2676 v3 @ 2.40GHz
 ## AVL Compare with RBTree
 ```
 avl tree
-size 100000
-build avl time PT0.028503527S 
-contain count 100000
-find avl time PT0.020674714S 
-clear avl time PT0.005049490S 
-tol_time PT0.054227731S
-
-rbtree
-size 100000
-build avl time PT0.028908981S 
-contain count 100000
-find avl time PT0.024804220S 
-clear avl time PT0.005598498S 
-tol_time PT0.059311699S
---------------------------------
-
-avl tree
 size 1000000
-build avl time PT0.563494613S 
+build avl time PT0.449384390S 
 contain count 1000000
-find avl time PT0.487795776S 
-clear avl time PT0.123542618S 
-tol_time PT1.174833007S
+find avl time PT0.413850025S 
+clear avl time PT0.030095744S 
+tol_time PT0.893330159S
 
 rbtree
 size 1000000
-build avl time PT0.637215084S 
+build avl time PT0.653474497S 
 contain count 1000000
-find avl time PT0.586499857S 
-clear avl time PT0.166939198S 
-tol_time PT1.390654139S
+find avl time PT0.586090195S 
+clear avl time PT0.163268201S 
+tol_time PT1.402832893S
 --------------------------------
 
 avl tree
 size 10000000
-build avl time PT11.550990767S 
+build avl time PT10.983235023S 
 contain count 10000000
-find avl time PT9.896446463S 
-clear avl time PT1.793976350S 
-tol_time PT23.241413580S
+find avl time PT9.879522083S 
+clear avl time PT0.505790728S 
+tol_time PT21.368547834S
 
 rbtree
 size 10000000
-build avl time PT12.740772577S 
+build avl time PT12.055410179S 
 contain count 10000000
-find avl time PT11.506824022S 
-clear avl time PT2.621726976S 
-tol_time PT26.869323575S
+find avl time PT11.174089882S 
+clear avl time PT2.267426381S 
+tol_time PT25.496926442S
 --------------------------------
 ```
 ## Compare with another implement of AVL
 ```
 my avl tree
-build avl time PT0.525162393S 
+build avl time PT0.447466098S 
 contain count 1000000
-find avl time PT0.463548624S 
-tol_time PT1.111170961S
+find avl time PT0.412760397S 
+tol_time PT0.892230455S
 
 avl_tree 0.2.0
-build avl time PT0.858368285S 
+build avl time PT0.789258763S 
 contain count 1000000
-find avl time PT0.472501388S 
-tol_time PT1.483857972S
+find avl time PT0.452490925S 
+tol_time PT1.390873758S
 --------------------------------
 
 my avl tree
-build avl time PT12.050122632S 
+build avl time PT10.902003554S 
 contain count 10000000
-find avl time PT10.213842381S 
-tol_time PT24.446940781S
+find avl time PT9.930489747S 
+tol_time PT21.289193191S
 
 avl_tree 0.2.0
-build avl time PT16.647625118S 
+build avl time PT15.921550652S 
 contain count 10000000
-find avl time PT10.369277327S 
-tol_time PT29.805170112S
+find avl time PT9.961234928S 
+tol_time PT28.548414545S
 --------------------------------
 ```
 ## Use AVL to resolve Hash Collision
