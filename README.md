@@ -41,34 +41,6 @@ clear avl time PT2.267426381S
 tol_time PT25.496926442S
 --------------------------------
 ```
-## Compare with another implement of AVL
-```
-my avl tree
-build avl time PT0.447466098S 
-contain count 1000000
-find avl time PT0.412760397S 
-tol_time PT0.892230455S
-
-avl_tree 0.2.0
-build avl time PT0.789258763S 
-contain count 1000000
-find avl time PT0.452490925S 
-tol_time PT1.390873758S
---------------------------------
-
-my avl tree
-build avl time PT10.902003554S 
-contain count 10000000
-find avl time PT9.930489747S 
-tol_time PT21.289193191S
-
-avl_tree 0.2.0
-build avl time PT15.921550652S 
-contain count 10000000
-find avl time PT9.961234928S 
-tol_time PT28.548414545S
---------------------------------
-```
 ## Use AVL to resolve Hash Collision
 ```
 test hash avl map

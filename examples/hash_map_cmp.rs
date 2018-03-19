@@ -17,7 +17,12 @@ pub fn default_make_avl_element(n: usize) -> Vec<i32> {
 }
 
 fn main() {
-    let max_num = 5_000_000;
+    run(1_000_000);
+    run(5_000_000);
+//    run(10_000_000);
+}
+
+fn run(max_num: usize) {
     let v = default_make_avl_element(max_num);
     test_hash_avl_map(max_num, &v);
     test_stl_hash_map(max_num, &v);
@@ -38,7 +43,7 @@ fn test_stl_hash_map(max_num: usize, v: &Vec<i32>) {
     let start = time::now();
     let mut cnt = 0;
     for i in v {
-        cnt += if map.get(&i.to_string()).is_none() {0} else {1};
+        cnt += if map.get(&i.to_string()).is_none() { 0 } else { 1 };
     }
     let duration = time::now() - start;
     println!("find {}, time {}", cnt, duration);
@@ -67,7 +72,7 @@ fn test_hash_avl_map(max_num: usize, v: &Vec<i32>) {
     let start = time::now();
     let mut cnt = 0;
     for i in v {
-        cnt += if map.get(&i.to_string()).is_none() {0} else {1};
+        cnt += if map.get(&i.to_string()).is_none() { 0 } else { 1 };
     }
     let duration = time::now() - start;
     println!("find {}, time {}", cnt, duration);

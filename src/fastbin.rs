@@ -2,11 +2,13 @@ use std::heap::Alloc;
 use std::heap::Heap;
 use std::heap::Layout;
 use std::mem;
+use std::cmp;
 
 pub type VoidPtr = *mut u8;
 
-const VOID_PTR_NULL: VoidPtr = 0 as VoidPtr;
-const MAXIMUM_PAGE_SIZE: usize = 1usize << 16; // default maximum page size is 64k
+pub const VOID_PTR_NULL: VoidPtr = 0 as VoidPtr;
+// default maximum page size is 64k
+const MAXIMUM_PAGE_SIZE: usize = 1usize << 16;
 const PAGE_OBJ_CNT: usize = 1usize << 5;
 
 pub struct Fastbin {
@@ -36,7 +38,7 @@ impl Fastbin {
 
     pub fn new_with_parameter(obj_size: usize, page_obj_cnt: usize, maximum: usize) -> Self {
         let mut fastbin = Default::default();
-        (&mut fastbin as FastbinPtr).fastbin_init(obj_size, page_obj_cnt, maximum);
+        (&mut fastbin as FastbinPtr).fastbin_init(cmp::max(1, obj_size), page_obj_cnt, maximum);
         fastbin
     }
 

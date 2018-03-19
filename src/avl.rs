@@ -8,6 +8,7 @@ use avl_node;
 use std::ptr;
 use fastbin::Fastbin;
 use fastbin::VoidPtr;
+use std::borrow::Borrow;
 
 pub struct AVLEntry<K, V> {
     node: AVLNode,
@@ -138,8 +139,8 @@ pub struct AVLTree<K, V> where K: Ord {
 
 impl<K, V> AVLTree<K, V> where K: Ord {
     #[inline]
-    pub fn find_cursors<'a>(tree: &'a mut AVLTree<K, V>, what: &K) -> Cursors<'a, K, V> {
-        let node = tree.find_node(&what);
+    pub fn find_cursors<'a, Q>(tree: &'a mut AVLTree<K, V>, q: &Q) -> Cursors<'a, K, V> where K: Borrow<Q>, Q: Ord {
+        let node = tree.find_node(q);
         Cursors { tree_mut: tree, pos: node }
     }
 
@@ -245,10 +246,10 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     }
 
     #[inline]
-    fn find_node(&self, what: &K) -> AVLNodePtr {
+    pub fn find_node<Q: ? Sized>(&self, q: &Q) -> AVLNodePtr where K: Borrow<Q>, Q: Ord {
         let mut node = self.root.node;
         while node.not_null() {
-            match what.cmp(node.key_ref::<K, V>()) {
+            match q.cmp(node.key_ref::<K, V>().borrow()) {
                 Ordering::Equal => {
                     return node;
                 }
@@ -272,7 +273,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
         self.root.node.isomorphic(t.root.node)
     }
 
-    fn check_valid(&self) -> bool {
+    pub fn check_valid(&self) -> bool {
         self.root.node.check_valid()
     }
 
@@ -337,19 +338,19 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     }
 
     #[inline]
-    pub fn remove(&mut self, what: &K) -> Option<(K, V)> {
-        let node = self.find_node(what);
+    pub fn remove<Q: ? Sized>(&mut self, q: &Q) -> Option<(K, V)> where K: Borrow<Q>, Q: Ord {
+        let node = self.find_node(q);
         unsafe { self.remove_node(node) }
     }
 
     #[inline]
-    pub fn contain(&self, what: &K) -> bool {
-        self.find_node(what).not_null()
+    pub fn contain<Q: ? Sized>(&self, q: &Q) -> bool where K: Borrow<Q>, Q: Ord {
+        self.find_node(q).not_null()
     }
 
     #[inline]
-    pub fn get(&self, what: &K) -> Option<&V> {
-        let node = self.find_node(what);
+    pub fn get<Q: ? Sized>(&self, q: &Q) -> Option<&V> where K: Borrow<Q>, Q: Ord {
+        let node = self.find_node(q);
         if node.is_null() {
             None
         } else {
@@ -357,9 +358,8 @@ impl<K, V> AVLTree<K, V> where K: Ord {
         }
     }
 
-    #[inline]
-    pub fn get_mut(&self, what: &K) -> Option<&mut V> {
-        let node = self.find_node(what);
+    pub fn get_mut<Q: ? Sized>(&mut self, q: &Q) -> Option<&mut V> where K: Borrow<Q>, Q: Ord {
+        let node = self.find_node(q);
         if node.is_null() {
             None
         } else {
@@ -583,7 +583,7 @@ pub struct IntoIter<K, V> where K: Ord {
     _marker: marker::PhantomData<(K, V)>,
 }
 
-impl <K, V> IntoIter<K, V> where K: Ord {
+impl<K, V> IntoIter<K, V> where K: Ord {
     fn remove(&mut self, node: AVLNodePtr) -> Option<(K, V)> {
         let parent = node.parent();
         if parent.not_null() {
@@ -629,7 +629,6 @@ impl<K, V> Iterator for IntoIter<K, V> where K: Ord {
         self.head = self.head.next();
         self.remove(node)
     }
-
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         (self.len, Some(self.len))

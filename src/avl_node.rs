@@ -254,7 +254,7 @@ impl AVLNodePtrBase for *mut AVLNode {
     }
 
     fn get_node_num(self) -> i32 {
-        if self.is_null() {return 0;}
+        if self.is_null() { return 0; }
         self.left().get_node_num() + self.right().get_node_num() + 1
     }
 }

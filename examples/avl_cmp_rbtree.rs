@@ -29,6 +29,7 @@ fn run(n: usize) {
     let duration = end - start;
     println!("size {}", t.size());
     println!("build avl time {} ", duration);
+    assert!(t.check_valid());
     tol_time = tol_time + duration;
     let mut count = 0;
     let start = time::now();

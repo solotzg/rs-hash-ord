@@ -7,4 +7,3 @@ authors = ["Tong Zhigao <solotzg@163.com>"]
 rand = "0.4.2"
 time = "0.1.39"
 rbtree = "0.1.5"
-avl_tree = "0.2.0"
