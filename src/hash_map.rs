@@ -623,6 +623,28 @@ impl<K, V, S> FromIterator<(K, V)> for HashMap<K, V, S>
     }
 }
 
+impl<K, V, S> Clone for HashMap<K, V, S> where K: Ord + Hash + Clone, V: Clone, S: BuildHasher + Clone {
+    fn clone(&self) -> Self {
+        let mut map = HashMap::with_capacity_and_hasher(
+            self.len(),
+            self.hash_builder.clone(),
+        );
+        for (k, v) in self.iter() {
+            map.insert(k.clone(), v.clone());
+        }
+        map
+    }
+}
+
+impl<K, V, S> PartialEq for HashMap<K, V, S> where K: Ord + Hash, V: PartialEq, S: BuildHasher {
+    fn eq(&self, other: &HashMap<K, V, S>) -> bool {
+        if self.len() != other.len() {
+            return false;
+        }
+        self.iter().all(|(key, value)| other.get(key).map_or(false, |v| *value == *v))
+    }
+}
+
 #[cfg(test)]
 mod test {
     use hash_map::HashMap;
@@ -862,5 +884,21 @@ mod test {
         assert_eq!(*cnt.borrow(), test_num - 10);
         drop(map);
         assert_eq!(*cnt.borrow(), test_num);
+    }
+
+    #[test]
+    fn test_hash_map_clone_equal() {
+        let mut a = HashMap::new();
+        for i in 0..100 {
+            a.insert(i, -i);
+        }
+        let mut b = a.clone();
+        assert_eq!(b.len(), a.len());
+        for (k, v) in a.iter() {
+            assert_eq!(b[k], *v);
+        }
+        assert!(a == b);
+        b.remove(&99);
+        assert!(a != b);
     }
 }
