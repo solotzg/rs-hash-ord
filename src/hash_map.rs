@@ -24,7 +24,7 @@ pub struct HashMap<K, V, S = RandomState> {
     hash_builder: S,
 }
 
-struct HashEntry<K, V> {
+struct InternalHashEntry<K, V> {
     node: HashNode<K>,
     value: *mut V,
 }
@@ -81,7 +81,7 @@ impl<'a, K, V, S> Iterator for ValuesMut<'a, K, V, S> where K: 'a, V: 'a, S: 'a 
 }
 
 pub struct Iter<'a, K, V, S> where K: 'a, V: 'a, S: 'a {
-    inner: *mut HashEntry<K, V>,
+    inner: *mut InternalHashEntry<K, V>,
     map: &'a HashMap<K, V, S>,
     len: usize,
 }
@@ -108,7 +108,7 @@ impl<'a, K, V, S> Iterator for Iter<'a, K, V, S> where K: 'a, V: 'a, S: 'a {
 }
 
 pub struct IterMut<'a, K, V, S> where K: 'a, V: 'a, S: 'a {
-    inner: *mut HashEntry<K, V>,
+    inner: *mut InternalHashEntry<K, V>,
     map: &'a HashMap<K, V, S>,
     len: usize,
 }
@@ -135,7 +135,7 @@ impl<'a, K, V, S> Iterator for IterMut<'a, K, V, S> where K: 'a, V: 'a, S: 'a {
 }
 
 #[inline]
-fn key_deref_to_kv<K, V>(key: *const K) -> *mut (K, V) {
+fn key_deref_to_kv<K, V>(key: *mut K) -> *mut (K, V) {
     container_of!(key, (K, V), 0)
 }
 
@@ -143,12 +143,12 @@ trait HashEntryBase<K, V> {
     fn node_ptr(self) -> *mut HashNode<K>;
     fn value(self) -> *mut V;
     fn set_value(self, value: *mut V);
-    fn key(self) -> *const K;
-    fn set_key(self, key: *const K);
+    fn key(self) -> *mut K;
+    fn set_key(self, key: *mut K);
     fn set_hash_value(self, hash_value: HashUint);
 }
 
-impl<K, V> HashEntryBase<K, V> for *mut HashEntry<K, V> {
+impl<K, V> HashEntryBase<K, V> for *mut InternalHashEntry<K, V> {
     #[inline]
     fn node_ptr(self) -> *mut HashNode<K> {
         unsafe { &mut (*self).node as *mut HashNode<K> }
@@ -162,11 +162,11 @@ impl<K, V> HashEntryBase<K, V> for *mut HashEntry<K, V> {
         unsafe { (*self).value = value; }
     }
     #[inline]
-    fn key(self) -> *const K {
+    fn key(self) -> *mut K {
         unsafe { (*self).node.key }
     }
     #[inline]
-    fn set_key(self, key: *const K) {
+    fn set_key(self, key: *mut K) {
         unsafe { (*self).node.key = key; }
     }
     #[inline]
@@ -176,17 +176,17 @@ impl<K, V> HashEntryBase<K, V> for *mut HashEntry<K, V> {
 }
 
 trait HashNodeDerefToHashEntry<K, V> {
-    fn deref_to_hash_entry(self) -> *mut HashEntry<K, V>;
+    fn deref_to_hash_entry(self) -> *mut InternalHashEntry<K, V>;
 }
 
 impl<K, V> HashNodeDerefToHashEntry<K, V> for *mut HashNode<K> {
-    fn deref_to_hash_entry(self) -> *mut HashEntry<K, V> {
-        container_of!(self, HashEntry<K, V>, node)
+    fn deref_to_hash_entry(self) -> *mut InternalHashEntry<K, V> {
+        container_of!(self, InternalHashEntry<K, V>, node)
     }
 }
 
 #[inline]
-unsafe fn find_duplicate_hash_node<K>(mut link: *mut AVLNodePtr, new_key: *const K, hash_val: HashUint)
+unsafe fn find_duplicate_hash_node<K>(mut link: *mut AVLNodePtr, new_key: *mut K, hash_val: HashUint)
                                       -> (*mut HashNode<K>, AVLNodePtr, *mut AVLNodePtr) where K: Ord
 {
     let mut parent = ptr::null_mut();
@@ -211,11 +211,12 @@ unsafe fn find_duplicate_hash_node<K>(mut link: *mut AVLNodePtr, new_key: *const
     (duplicate, parent, link)
 }
 
-unsafe fn hash_table_update<K, V>(hash_table: &mut HashTable<K, V>, new_entry: *mut HashEntry<K, V>) -> *mut HashEntry<K, V> where K: Ord + Hash {
+unsafe fn hash_table_update<K, V>(hash_table: &mut HashTable<K, V>, new_entry: *mut InternalHashEntry<K, V>) -> *mut InternalHashEntry<K, V> where K: Ord + Hash {
     let new_node = new_entry.node_ptr();
     let hash_val = new_node.hash_val();
     let index = hash_table.get_hash_index(hash_val);
     let link = index.avl_root_node_ptr();
+    // for runtime, this part doesn't need to be combined into avl insertion
     if (*link).is_null() {
         new_node.avl_node_ptr().reset(ptr::null_mut(), ptr::null_mut(), ptr::null_mut(), 1);
         (*link) = new_node.avl_node_ptr();
@@ -238,8 +239,8 @@ unsafe fn hash_table_update<K, V>(hash_table: &mut HashTable<K, V>, new_entry: *
 }
 
 #[inline]
-fn entry_alloc<K, V>(entry_fastbin: &mut Fastbin, key: *const K, value: *mut V, hash_value: HashUint) -> *mut HashEntry<K, V> {
-    let entry = entry_fastbin.alloc() as *mut HashEntry<K, V>;
+fn entry_alloc<K, V>(entry_fastbin: &mut Fastbin, key: *mut K, value: *mut V, hash_value: HashUint) -> *mut InternalHashEntry<K, V> {
+    let entry = entry_fastbin.alloc() as *mut InternalHashEntry<K, V>;
     debug_assert!(!entry.is_null());
     entry.set_value(value);
     entry.set_key(key);
@@ -264,20 +265,141 @@ pub enum Entry<'a, K, V, S> where K: 'a, V: 'a, S: 'a {
     Vacant(VacantEntry<'a, K, V, S>),
 }
 
+impl<'a, K, V, S> Entry<'a, K, V, S> {
+    pub fn key(&self) -> &K {
+        match *self {
+            Entry::Occupied(ref entry) => entry.key(),
+            Entry::Vacant(ref entry) => entry.key(),
+        }
+    }
+}
+
+impl<'a, K, V, S> Entry<'a, K, V, S> where K: Ord + Hash, S: BuildHasher {
+    pub fn or_insert(self, default: V) -> &'a mut V {
+        match self {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => entry.insert(default),
+        }
+    }
+
+    pub fn or_insert_with<F: FnOnce() -> V>(self, default: F) -> &'a mut V {
+        match self {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => entry.insert(default()),
+        }
+    }
+
+    pub fn and_modify<F>(self, mut f: F) -> Self
+        where F: FnMut(&mut V)
+    {
+        match self {
+            Entry::Occupied(mut entry) => {
+                f(entry.get_mut());
+                Entry::Occupied(entry)
+            }
+            Entry::Vacant(entry) => Entry::Vacant(entry),
+        }
+    }
+}
+
 pub struct OccupiedEntry<'a, K, V, S> where K: 'a, V: 'a, S: 'a {
     key: Option<K>,
-    hash_entry: *mut HashEntry<K, V>,
+    hash_entry: *mut InternalHashEntry<K, V>,
     hash_map_mut: &'a mut HashMap<K, V, S>,
 }
 
 pub struct VacantEntry<'a, K, V, S> where K: 'a, V: 'a, S: 'a {
-    hash: HashUint,
+    hash_value: HashUint,
     key: K,
-    duplicate: *mut HashNode<K>,
-    parent: *mut HashNode<K>,
-    link: AVLNodePtr,
+    parent: AVLNodePtr,
+    link: *mut AVLNodePtr,
     hash_map_mut: &'a mut HashMap<K, V, S>,
 }
+
+impl<'a, K, V, S> OccupiedEntry<'a, K, V, S> where K: Ord + Hash, S: BuildHasher {
+    pub fn remove_entry(self) -> (K, V) {
+        let hash_entry = self.hash_entry;
+        self.hash_map_mut.erase(hash_entry).unwrap()
+    }
+
+    pub fn remove(self) -> V {
+        self.remove_entry().1
+    }
+}
+
+impl<'a, K, V, S> OccupiedEntry<'a, K, V, S> {
+    pub fn key(&self) -> &K {
+        unsafe { &*self.hash_entry.key() }
+    }
+
+    fn take_key(&mut self) -> Option<K> {
+        self.key.take()
+    }
+
+    pub fn replace_key(self) -> K {
+        let old_key = unsafe { &mut *self.hash_entry.key() };
+        mem::replace(old_key, self.key.unwrap())
+    }
+
+    pub fn get(&self) -> &V {
+        unsafe { &*self.hash_entry.value() }
+    }
+
+    pub fn get_mut(&mut self) -> &mut V {
+        unsafe { &mut *self.hash_entry.value() }
+    }
+
+    pub fn into_mut(self) -> &'a mut V {
+        unsafe { &mut *self.hash_entry.value() }
+    }
+
+    pub fn insert(&mut self, mut value: V) -> V {
+        let old_value = self.get_mut();
+        mem::swap(&mut value, old_value);
+        value
+    }
+
+    pub fn replace_entry(self, value: V) -> (K, V) {
+        let (old_key, old_value) = unsafe { (&mut *self.hash_entry.key(), &mut *self.hash_entry.value()) };
+        let old_key = mem::replace(old_key, self.key.unwrap());
+        let old_value = mem::replace(old_value, value);
+        (old_key, old_value)
+    }
+}
+
+impl<'a, K, V, S> VacantEntry<'a, K, V, S> {
+    pub fn key(&self) -> &K {
+        &self.key
+    }
+
+    pub fn into_key(self) -> K {
+        self.key
+    }
+}
+
+impl<'a, K, V, S> VacantEntry<'a, K, V, S> where K: Ord + Hash, S: BuildHasher {
+    unsafe fn _internal_insert(self, value: V) -> &'a mut V {
+        let hash_value = self.hash_value;
+        let index = self.hash_map_mut.hash_table.get_hash_index(hash_value);
+        let key = self.key;
+        let kv_ptr = self.hash_map_mut.kv_alloc(key, value);
+        let new_entry = self.hash_map_mut.entry_alloc(&mut (*kv_ptr).0 as *mut K, &mut (*kv_ptr).1 as *mut V, hash_value);
+        let new_node = new_entry.node_ptr();
+        if index.avl_root_node().is_null() {
+            self.hash_map_mut.hash_table.head_ptr().list_add_tail(index.node_ptr());
+        }
+        avl_node::link_node(new_node.avl_node_ptr(), self.parent, self.link);
+        avl_node::node_post_insert(new_node.avl_node_ptr(), index.avl_root_ptr());
+        self.hash_map_mut.hash_table.inc_count(1);
+        self.hash_map_mut.hash_table.default_rehash();
+        &mut *new_entry.value()
+    }
+
+    fn insert(self, value: V) -> &'a mut V {
+        unsafe { self._internal_insert(value) }
+    }
+}
+
 
 impl<K, V, S> HashMap<K, V, S> {
     fn recurse_destroy<F>(&mut self, node: avl_node::AVLNodePtr, f: &mut F) where F: FnMut((K, V)) {
@@ -288,7 +410,7 @@ impl<K, V, S> HashMap<K, V, S> {
             self.recurse_destroy(node.right(), f);
         }
         let hash_node = node.avl_hash_deref_mut::<K>();
-        let entry: *mut HashEntry<K, V> = hash_node.deref_to_hash_entry();
+        let entry: *mut InternalHashEntry<K, V> = hash_node.deref_to_hash_entry();
         self.entry_fastbin.del(entry as VoidPtr);
         let kv_ptr = key_deref_to_kv::<K, V>(hash_node.key_ptr());
         unsafe { (*f)(ptr::read(kv_ptr)) };
@@ -317,7 +439,7 @@ impl<K, V, S> HashMap<K, V, S> {
     }
 
     #[inline]
-    fn first(&self) -> *mut HashEntry<K, V> {
+    fn first(&self) -> *mut InternalHashEntry<K, V> {
         let hash_node = self.hash_table.node_first();
         if hash_node.is_null() {
             return ptr::null_mut();
@@ -326,7 +448,7 @@ impl<K, V, S> HashMap<K, V, S> {
     }
 
     #[inline]
-    fn last(&self) -> *mut HashEntry<K, V> {
+    fn last(&self) -> *mut InternalHashEntry<K, V> {
         let hash_node = self.hash_table.node_last();
         if hash_node.is_null() {
             return ptr::null_mut();
@@ -335,7 +457,7 @@ impl<K, V, S> HashMap<K, V, S> {
     }
 
     #[inline]
-    fn next(&self, entry: *mut HashEntry<K, V>) -> *mut HashEntry<K, V> {
+    fn next(&self, entry: *mut InternalHashEntry<K, V>) -> *mut InternalHashEntry<K, V> {
         let hash_node = self.hash_table.node_next(entry.node_ptr());
         if hash_node.is_null() {
             return ptr::null_mut();
@@ -344,7 +466,7 @@ impl<K, V, S> HashMap<K, V, S> {
     }
 
     #[inline]
-    fn prev(&self, entry: *mut HashEntry<K, V>) -> *mut HashEntry<K, V> {
+    fn prev(&self, entry: *mut InternalHashEntry<K, V>) -> *mut InternalHashEntry<K, V> {
         let hash_node = self.hash_table.node_prev(entry.node_ptr());
         if hash_node.is_null() {
             return ptr::null_mut();
@@ -363,7 +485,7 @@ impl<K, V, S> HashMap<K, V, S> {
     }
 
     #[inline]
-    fn entry_alloc(&mut self, key: *const K, value: *mut V, hash_value: HashUint) -> *mut HashEntry<K, V> {
+    fn entry_alloc(&mut self, key: *mut K, value: *mut V, hash_value: HashUint) -> *mut InternalHashEntry<K, V> {
         entry_alloc(&mut self.entry_fastbin, key, value, hash_value)
     }
 
@@ -394,6 +516,27 @@ impl<K, V, S> HashMap<K, V, S> {
 }
 
 impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
+    pub fn entry(&mut self, mut key: K) -> Entry<K, V, S> {
+        let hash_val = self.make_hash(&key);
+        let link = self.hash_table.get_hash_index(hash_val).avl_root_node_ptr();
+        let (duplicate, parent, link) = unsafe { find_duplicate_hash_node(link, &mut key as *mut K, hash_val) };
+        if duplicate.is_null() {
+            return Entry::Vacant(VacantEntry {
+                hash_value: hash_val,
+                key,
+                parent,
+                link,
+                hash_map_mut: self,
+            });
+        } else {
+            return Entry::Occupied(OccupiedEntry {
+                key: Some(key),
+                hash_entry: duplicate.deref_to_hash_entry(),
+                hash_map_mut: self,
+            });
+        };
+    }
+
     #[inline]
     fn make_hash<X: ? Sized>(&self, x: &X) -> HashUint where X: Hash {
         hash_table::make_hash(&self.hash_builder, x)
@@ -403,13 +546,13 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
         HashMap::with_capacity_and_hasher(0, hash_builder)
     }
 
-    fn erase(&mut self, entry: *mut HashEntry<K, V>) -> Option<(K, V)> {
+    fn erase(&mut self, entry: *mut InternalHashEntry<K, V>) -> Option<(K, V)> {
         debug_assert!(!entry.is_null());
         debug_assert!(!entry.node_ptr().avl_node_ptr().empty());
         self.hash_table.hash_erase(entry.node_ptr());
         entry.node_ptr().avl_node_ptr().init();
         let kv = key_deref_to_kv::<K, V>(entry.key());
-        entry.node_ptr().set_key_ptr(ptr::null());
+        entry.node_ptr().set_key_ptr(ptr::null_mut());
         entry.set_value(ptr::null_mut());
         self.entry_fastbin.del(entry as VoidPtr);
         let res = unsafe { Some(ptr::read(kv)) };
@@ -418,7 +561,7 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
     }
 
     #[inline]
-    fn find<Q: ? Sized>(&self, q: &Q) -> *mut HashEntry<K, V> where K: Borrow<Q>, Q: Ord + Hash {
+    fn find<Q: ? Sized>(&self, q: &Q) -> *mut InternalHashEntry<K, V> where K: Borrow<Q>, Q: Ord + Hash {
         let node = self.hash_table.hash_find(self.make_hash(q), q);
         if node.is_null() {
             ptr::null_mut()
@@ -426,7 +569,6 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
             node.deref_to_hash_entry()
         }
     }
-
 
     #[inline]
     pub fn get<Q: ? Sized>(&self, q: &Q) -> Option<&V> where K: Borrow<Q>, Q: Hash + Ord {
@@ -462,10 +604,9 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
     pub fn insert(&mut self, key: K, value: V) -> Option<(K, V)> {
         let hash_value = self.make_hash(&key);
         let kv_ptr = self.kv_alloc(key, value);
-        let new_entry = unsafe { self.entry_alloc(&(*kv_ptr).0 as *const K, &mut (*kv_ptr).1 as *mut V, hash_value) };
+        let new_entry = unsafe { self.entry_alloc(&mut (*kv_ptr).0 as *mut K, &mut (*kv_ptr).1 as *mut V, hash_value) };
         let old_entry = unsafe { hash_table_update(self.hash_table.as_mut(), new_entry) };
-        let cap = self.hash_table.size();
-        self.rehash(cap);
+        self.hash_table.default_rehash();
         if old_entry.is_null() {
             None
         } else {
@@ -486,7 +627,7 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
 
     pub fn with_capacity_and_hasher(capacity: usize, hash_builder: S) -> HashMap<K, V, S> {
         let mut hash_map = HashMap {
-            entry_fastbin: Fastbin::new(mem::size_of::<HashEntry<K, V>>()),
+            entry_fastbin: Fastbin::new(mem::size_of::<InternalHashEntry<K, V>>()),
             kv_fastbin: Fastbin::new(mem::size_of::<(K, V)>()),
             hash_table: hash_table::HashTable::new_with_box(),
             hash_builder,
@@ -503,7 +644,7 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
             new_index_size /= 2;
         }
         if new_index_size >= old_index_size { return; }
-        let mut new_entry_fastbin = Fastbin::new(mem::size_of::<HashEntry<K, V>>());
+        let mut new_entry_fastbin = Fastbin::new(mem::size_of::<InternalHashEntry<K, V>>());
         let mut new_kv_fastbin = Fastbin::new(mem::size_of::<(K, V)>());
         let mut new_hash_table = hash_table::HashTable::new_with_box();
         new_hash_table.rehash(self.len());
@@ -522,7 +663,7 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
         }
         for kv_ptr in new_kv_vec {
             unsafe {
-                let key_ptr = &(*kv_ptr).0 as *const K;
+                let key_ptr = &mut (*kv_ptr).0 as *mut K;
                 let value_ptr = &mut (*kv_ptr).1 as *mut V;
                 let entry = entry_alloc(&mut new_entry_fastbin, key_ptr, value_ptr, self.make_hash(&(*key_ptr)));
                 hash_table_update(
@@ -596,6 +737,40 @@ impl<K, V, S> Extend<(K, V)> for HashMap<K, V, S>
     }
 }
 
+impl<'a, K, V, S> Extend<(&'a K, &'a V)> for HashMap<K, V, S>
+    where K: Ord + Hash + Copy,
+          V: Copy,
+          S: BuildHasher
+{
+    fn extend<T: IntoIterator<Item=(&'a K, &'a V)>>(&mut self, iter: T) {
+        self.extend(iter.into_iter().map(|(&key, &value)| (key, value)));
+    }
+}
+
+impl<'a, K, V, S> IntoIterator for &'a HashMap<K, V, S>
+    where K: Ord + Hash,
+          S: BuildHasher
+{
+    type Item = (&'a K, &'a V);
+    type IntoIter = Iter<'a, K, V, S>;
+
+    fn into_iter(self) -> Iter<'a, K, V, S> {
+        self.iter()
+    }
+}
+
+impl<'a, K, V, S> IntoIterator for &'a mut HashMap<K, V, S>
+    where K: Eq + Hash,
+          S: BuildHasher
+{
+    type Item = (&'a K, &'a mut V);
+    type IntoIter = IterMut<'a, K, V, S>;
+
+    fn into_iter(self) -> IterMut<'a, K, V, S> {
+        self.iter_mut()
+    }
+}
+
 impl<K, V, S> IntoIterator for HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
     type Item = (K, V);
     type IntoIter = IntoIter<K, V, S>;
@@ -610,7 +785,7 @@ impl<K, V, S> IntoIterator for HashMap<K, V, S> where K: Ord + Hash, S: BuildHas
 }
 
 pub struct IntoIter<K, V, S> where K: Ord + Hash, S: BuildHasher {
-    entry: *mut HashEntry<K, V>,
+    entry: *mut InternalHashEntry<K, V>,
     map: HashMap<K, V, S>,
     len: usize,
 }
@@ -678,6 +853,7 @@ impl<K, V, S> Eq for HashMap<K, V, S> where K: Ord + Hash, V: Eq, S: BuildHasher
 mod test {
     use hash_map::HashMap;
     use std::cell::RefCell;
+    use hash_map::Entry::*;
 
     #[test]
     fn test_hash_map() {
@@ -966,5 +1142,62 @@ mod test {
         map.insert(2, 1);
         map.insert(3, 4);
         map[&4];
+    }
+
+    #[test]
+    fn test_empty_entry() {
+        let mut m: HashMap<isize, bool> = HashMap::new();
+        match m.entry(0) {
+            Occupied(_) => panic!(),
+            Vacant(_) => {}
+        }
+        assert!(*m.entry(0).or_insert(true));
+        assert_eq!(m.len(), 1);
+    }
+
+    #[test]
+    fn test_entry() {
+        let xs = [(1, 10), (2, 20), (3, 30), (4, 40), (5, 50), (6, 60)];
+
+        let mut map: HashMap<_, _> = xs.iter().cloned().collect();
+
+        match map.entry(1) {
+            Vacant(_) => unreachable!(),
+            Occupied(mut view) => {
+                assert_eq!(view.get(), &10);
+                assert_eq!(view.insert(100), 10);
+            }
+        }
+        assert_eq!(map.get(&1).unwrap(), &100);
+        assert_eq!(map.len(), 6);
+
+        match map.entry(2) {
+            Vacant(_) => unreachable!(),
+            Occupied(mut view) => {
+                let v = view.get_mut();
+                let new_v = (*v) * 10;
+                *v = new_v;
+            }
+        }
+        assert_eq!(map.get(&2).unwrap(), &200);
+        assert_eq!(map.len(), 6);
+
+        match map.entry(3) {
+            Vacant(_) => unreachable!(),
+            Occupied(view) => {
+                assert_eq!(view.remove(), 30);
+            }
+        }
+        assert_eq!(map.get(&3), None);
+        assert_eq!(map.len(), 5);
+
+        match map.entry(10) {
+            Occupied(_) => unreachable!(),
+            Vacant(view) => {
+                assert_eq!(*view.insert(1000), 1000);
+            }
+        }
+        assert_eq!(map.get(&10).unwrap(), &1000);
+        assert_eq!(map.len(), 6);
     }
 }

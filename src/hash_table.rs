@@ -18,7 +18,7 @@ const AVL_HASH_INIT_SIZE: usize = 8;
 
 pub struct HashNode<K> {
     pub hash_val: HashUint,
-    pub key: *const K,
+    pub key: *mut K,
     pub avl_node: AVLNode,
 }
 
@@ -26,8 +26,8 @@ pub trait HashNodePtrOperation<K> {
     fn hash_val(self) -> HashUint;
     fn set_hash_val(self, hash_val: HashUint);
     fn avl_node_ptr(self) -> AVLNodePtr;
-    fn key_ptr(self) -> *const K;
-    fn set_key_ptr(self, key: *const K);
+    fn key_ptr(self) -> *mut K;
+    fn set_key_ptr(self, key: *mut K);
 }
 
 impl<K> HashNodePtrOperation<K> for *mut HashNode<K> {
@@ -44,11 +44,11 @@ impl<K> HashNodePtrOperation<K> for *mut HashNode<K> {
         unsafe { &mut (*self).avl_node as AVLNodePtr }
     }
     #[inline]
-    fn key_ptr(self) -> *const K {
+    fn key_ptr(self) -> *mut K {
         unsafe { (*self).key }
     }
     #[inline]
-    fn set_key_ptr(self, key: *const K) {
+    fn set_key_ptr(self, key: *mut K) {
         unsafe { (*self).key = key; }
     }
 }
@@ -276,6 +276,12 @@ impl<K, V> HashTable<K, V> where K: Ord + Hash {
                 }
             }
         }
+    }
+
+    #[inline]
+    pub fn default_rehash(&mut self) {
+        let cap = self.count;
+        self.rehash(cap);
     }
 
     pub fn new_with_box() -> Box<Self> {
