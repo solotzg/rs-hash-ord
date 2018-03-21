@@ -7,7 +7,7 @@ use std::hash::BuildHasher;
 use std::hash::Hash;
 use std::mem;
 use std::ptr;
-use avl_node::AVLNodePtrBase;
+use avl_node::{AVLNodePtrBase, AVLNodePtr};
 use hash_table::HashIndexPtrOperation;
 use hash_table::HashNodeOperation;
 use list::ListHeadPtrFn;
@@ -17,7 +17,7 @@ use std::ops::Index;
 use std::borrow::Borrow;
 use std::iter::FromIterator;
 
-pub struct HashMap<K, V, S = RandomState> where K: Ord + Hash, S: BuildHasher {
+pub struct HashMap<K, V, S = RandomState> {
     entry_fastbin: Fastbin,
     kv_fastbin: Fastbin,
     hash_table: Box<HashTable<K, V>>,
@@ -29,11 +29,11 @@ struct HashEntry<K, V> {
     value: *mut V,
 }
 
-pub struct Keys<'a, K, V, S> where K: 'a + Ord + Hash, V: 'a, S: 'a + BuildHasher {
+pub struct Keys<'a, K, V, S> where K: 'a, V: 'a, S: 'a {
     inner: Iter<'a, K, V, S>,
 }
 
-impl<'a, K, V, S> Iterator for Keys<'a, K, V, S> where K: 'a + Ord + Hash, V: 'a, S: 'a + BuildHasher {
+impl<'a, K, V, S> Iterator for Keys<'a, K, V, S> where K: 'a, V: 'a, S: 'a {
     type Item = &'a K;
 
     #[inline]
@@ -46,11 +46,11 @@ impl<'a, K, V, S> Iterator for Keys<'a, K, V, S> where K: 'a + Ord + Hash, V: 'a
     }
 }
 
-pub struct Values<'a, K, V, S> where K: 'a + Ord + Hash, V: 'a, S: 'a + BuildHasher {
+pub struct Values<'a, K, V, S> where K: 'a, V: 'a, S: 'a {
     inner: Iter<'a, K, V, S>,
 }
 
-impl<'a, K, V, S> Iterator for Values<'a, K, V, S> where K: 'a + Ord + Hash, V: 'a, S: 'a + BuildHasher {
+impl<'a, K, V, S> Iterator for Values<'a, K, V, S> where K: 'a, V: 'a, S: 'a {
     type Item = &'a V;
 
     #[inline]
@@ -63,11 +63,11 @@ impl<'a, K, V, S> Iterator for Values<'a, K, V, S> where K: 'a + Ord + Hash, V: 
     }
 }
 
-pub struct ValuesMut<'a, K, V, S> where K: 'a + Ord + Hash, V: 'a, S: 'a + BuildHasher {
+pub struct ValuesMut<'a, K, V, S> where K: 'a, V: 'a, S: 'a {
     inner: IterMut<'a, K, V, S>,
 }
 
-impl<'a, K, V, S> Iterator for ValuesMut<'a, K, V, S> where K: 'a + Ord + Hash, V: 'a, S: 'a + BuildHasher {
+impl<'a, K, V, S> Iterator for ValuesMut<'a, K, V, S> where K: 'a, V: 'a, S: 'a {
     type Item = &'a mut V;
 
     #[inline]
@@ -80,13 +80,13 @@ impl<'a, K, V, S> Iterator for ValuesMut<'a, K, V, S> where K: 'a + Ord + Hash, 
     }
 }
 
-pub struct Iter<'a, K, V, S> where K: 'a + Ord + Hash, V: 'a, S: 'a + BuildHasher {
+pub struct Iter<'a, K, V, S> where K: 'a, V: 'a, S: 'a {
     inner: *mut HashEntry<K, V>,
     map: &'a HashMap<K, V, S>,
     len: usize,
 }
 
-impl<'a, K, V, S> Iterator for Iter<'a, K, V, S> where K: 'a + Ord + Hash, V: 'a, S: 'a + BuildHasher {
+impl<'a, K, V, S> Iterator for Iter<'a, K, V, S> where K: 'a, V: 'a, S: 'a {
     type Item = (&'a K, &'a V);
 
     #[inline]
@@ -107,13 +107,13 @@ impl<'a, K, V, S> Iterator for Iter<'a, K, V, S> where K: 'a + Ord + Hash, V: 'a
     }
 }
 
-pub struct IterMut<'a, K, V, S> where K: 'a + Ord + Hash, V: 'a, S: 'a + BuildHasher {
+pub struct IterMut<'a, K, V, S> where K: 'a, V: 'a, S: 'a {
     inner: *mut HashEntry<K, V>,
     map: &'a HashMap<K, V, S>,
     len: usize,
 }
 
-impl<'a, K, V, S> Iterator for IterMut<'a, K, V, S> where K: 'a + Ord + Hash, V: 'a, S: 'a + BuildHasher {
+impl<'a, K, V, S> Iterator for IterMut<'a, K, V, S> where K: 'a, V: 'a, S: 'a {
     type Item = (&'a K, &'a mut V);
 
     #[inline]
@@ -185,20 +185,12 @@ impl<K, V> HashNodeDerefToHashEntry<K, V> for *mut HashNode<K> {
     }
 }
 
-unsafe fn hash_table_update<K, V>(hash_table: &mut HashTable<K, V>, new_entry: *mut HashEntry<K, V>) -> *mut HashEntry<K, V> where K: Ord + Hash {
-    let new_node = new_entry.node_ptr();
-    let hash_val = new_node.hash_val();
-    let index = hash_table.get_hash_index(hash_val);
-    let mut link = index.avl_root_node_ptr();
+#[inline]
+unsafe fn find_duplicate_hash_node<K>(mut link: *mut AVLNodePtr, new_key: *const K, hash_val: HashUint)
+                                      -> (*mut HashNode<K>, AVLNodePtr, *mut AVLNodePtr) where K: Ord
+{
     let mut parent = ptr::null_mut();
-    if index.avl_root_node().is_null() {
-        new_node.avl_node_ptr().reset(ptr::null_mut(), ptr::null_mut(), ptr::null_mut(), 1);
-        index.set_avl_root_node(new_node.avl_node_ptr());
-        hash_table.head_ptr().list_add_tail(index.node_ptr());
-        hash_table.inc_count(1);
-        return ptr::null_mut();
-    }
-    let new_key = new_entry.key();
+    let mut duplicate = ptr::null_mut();
     while !(*link).is_null() {
         parent = *link;
         let snode = parent.avl_hash_deref_mut::<K>();
@@ -208,18 +200,34 @@ unsafe fn hash_table_update<K, V>(hash_table: &mut HashTable<K, V>, new_entry: *
         } else {
             match (*new_key).cmp(&(*snode.key_ptr())) {
                 Ordering::Equal => {
-                    let old_entry = snode.deref_to_hash_entry();
-                    avl_node::avl_node_replace(snode.avl_node_ptr(), new_node.avl_node_ptr(), index.avl_root_ptr());
-                    return old_entry;
+                    duplicate = snode;
+                    break;
                 }
-                Ordering::Less => {
-                    link = parent.left_mut();
-                }
-                Ordering::Greater => {
-                    link = parent.right_mut();
-                }
+                Ordering::Less => { link = parent.left_mut(); }
+                Ordering::Greater => { link = parent.right_mut(); }
             }
         }
+    }
+    (duplicate, parent, link)
+}
+
+unsafe fn hash_table_update<K, V>(hash_table: &mut HashTable<K, V>, new_entry: *mut HashEntry<K, V>) -> *mut HashEntry<K, V> where K: Ord + Hash {
+    let new_node = new_entry.node_ptr();
+    let hash_val = new_node.hash_val();
+    let index = hash_table.get_hash_index(hash_val);
+    let link = index.avl_root_node_ptr();
+    if (*link).is_null() {
+        new_node.avl_node_ptr().reset(ptr::null_mut(), ptr::null_mut(), ptr::null_mut(), 1);
+        (*link) = new_node.avl_node_ptr();
+        hash_table.head_ptr().list_add_tail(index.node_ptr());
+        hash_table.inc_count(1);
+        return ptr::null_mut();
+    }
+    let (duplicate, parent, link) = find_duplicate_hash_node(link, new_entry.key(), hash_val);
+    if !duplicate.is_null() {
+        let old_entry = duplicate.deref_to_hash_entry();
+        avl_node::avl_node_replace(duplicate.avl_node_ptr(), new_node.avl_node_ptr(), index.avl_root_ptr());
+        return old_entry;
     }
     debug_assert_ne!(parent, new_node.avl_node_ptr());
     debug_assert!(!new_entry.is_null());
@@ -251,7 +259,54 @@ fn kv_alloc<K, V>(kv_fastbin: &mut Fastbin, key: K, value: V) -> *mut (K, V) {
     kv
 }
 
-impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
+pub enum Entry<'a, K, V, S> where K: 'a, V: 'a, S: 'a {
+    Occupied(OccupiedEntry<'a, K, V, S>),
+    Vacant(VacantEntry<'a, K, V, S>),
+}
+
+pub struct OccupiedEntry<'a, K, V, S> where K: 'a, V: 'a, S: 'a {
+    key: Option<K>,
+    hash_entry: *mut HashEntry<K, V>,
+    hash_map_mut: &'a mut HashMap<K, V, S>,
+}
+
+pub struct VacantEntry<'a, K, V, S> where K: 'a, V: 'a, S: 'a {
+    hash: HashUint,
+    key: K,
+    duplicate: *mut HashNode<K>,
+    parent: *mut HashNode<K>,
+    link: AVLNodePtr,
+    hash_map_mut: &'a mut HashMap<K, V, S>,
+}
+
+impl<K, V, S> HashMap<K, V, S> {
+    fn recurse_destroy<F>(&mut self, node: avl_node::AVLNodePtr, f: &mut F) where F: FnMut((K, V)) {
+        if node.left().not_null() {
+            self.recurse_destroy(node.left(), f);
+        }
+        if node.right().not_null() {
+            self.recurse_destroy(node.right(), f);
+        }
+        let hash_node = node.avl_hash_deref_mut::<K>();
+        let entry: *mut HashEntry<K, V> = hash_node.deref_to_hash_entry();
+        self.entry_fastbin.del(entry as VoidPtr);
+        let kv_ptr = key_deref_to_kv::<K, V>(hash_node.key_ptr());
+        unsafe { (*f)(ptr::read(kv_ptr)) };
+        self.kv_fastbin.del(kv_ptr as VoidPtr);
+        self.hash_table.dec_count(1);
+    }
+
+    pub fn clear(&mut self) {
+        let mut destroy_callback = |_| {};
+        loop {
+            let node = self.hash_table.pop_first_index();
+            if node.is_null() { break; }
+            self.recurse_destroy(node, &mut destroy_callback);
+        }
+        debug_assert_eq!(self.hash_table.size(), 0);
+    }
+
+    #[inline]
     pub fn capacity(&self) -> usize {
         self.hash_table.capacity()
     }
@@ -259,11 +314,6 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
     #[inline]
     pub fn get_max_node_of_single_index(&self) -> i32 {
         self.hash_table.get_max_node_of_single_index()
-    }
-
-    #[inline]
-    fn make_hash<X: ? Sized>(&self, x: &X) -> HashUint where X: Hash {
-        hash_table::make_hash(&self.hash_builder, x)
     }
 
     #[inline]
@@ -302,91 +352,14 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
         hash_node.deref_to_hash_entry()
     }
 
-    pub fn with_hasher(hash_builder: S) -> Self {
-        HashMap::with_capacity_and_hasher(0, hash_builder)
-    }
-
-    fn recurse_destroy<F>(&mut self, node: avl_node::AVLNodePtr, f: &mut F) where F: FnMut((K, V)) {
-        if node.left().not_null() {
-            self.recurse_destroy(node.left(), f);
-        }
-        if node.right().not_null() {
-            self.recurse_destroy(node.right(), f);
-        }
-        let hash_node = node.avl_hash_deref_mut::<K>();
-        let entry: *mut HashEntry<K, V> = hash_node.deref_to_hash_entry();
-        self.entry_fastbin.del(entry as VoidPtr);
-        let kv_ptr = key_deref_to_kv::<K, V>(hash_node.key_ptr());
-        unsafe { (*f)(ptr::read(kv_ptr)) };
-        self.kv_fastbin.del(kv_ptr as VoidPtr);
-        self.hash_table.dec_count(1);
-    }
-
-    pub fn clear(&mut self) {
-        let mut destroy_callback = |_| {};
-        loop {
-            let node = self.hash_table.pop_first_index();
-            if node.is_null() { break; }
-            self.recurse_destroy(node, &mut destroy_callback);
-        }
-        debug_assert_eq!(self.hash_table.size(), 0);
-    }
-
     #[inline]
     pub fn len(&self) -> usize {
         self.hash_table.size()
     }
 
-    fn erase(&mut self, entry: *mut HashEntry<K, V>) -> Option<(K, V)> {
-        debug_assert!(!entry.is_null());
-        debug_assert!(!entry.node_ptr().avl_node_ptr().empty());
-        self.hash_table.hash_erase(entry.node_ptr());
-        entry.node_ptr().avl_node_ptr().init();
-        let kv = key_deref_to_kv::<K, V>(entry.key());
-        entry.node_ptr().set_key_ptr(ptr::null());
-        entry.set_value(ptr::null_mut());
-        self.entry_fastbin.del(entry as VoidPtr);
-        let res = unsafe { Some(ptr::read(kv)) };
-        self.kv_fastbin.del(kv as VoidPtr);
-        res
-    }
-
-    #[inline]
-    fn destroy(&mut self) {
-        self.clear();
-    }
-
-    #[inline]
-    fn find<Q: ? Sized>(&self, q: &Q) -> *mut HashEntry<K, V> where K: Borrow<Q>, Q: Ord + Hash {
-        let node = self.hash_table.hash_find(self.make_hash(q), q);
-        if node.is_null() {
-            ptr::null_mut()
-        } else {
-            node.deref_to_hash_entry()
-        }
-    }
-
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
-    }
-
-    #[inline]
-    pub fn get<Q: ? Sized>(&self, q: &Q) -> Option<&V> where K: Borrow<Q>, Q: Hash + Ord {
-        let entry = self.find(q);
-        if entry.is_null() {
-            return None;
-        }
-        unsafe { Some(&(*entry.value())) }
-    }
-
-    #[inline]
-    pub fn get_mut<Q: ? Sized>(&mut self, q: &Q) -> Option<&mut V> where K: Borrow<Q>, Q: Hash + Ord {
-        let entry = self.find(q);
-        if entry.is_null() {
-            return None;
-        }
-        unsafe { Some(&mut (*entry.value())) }
     }
 
     #[inline]
@@ -417,6 +390,60 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
 
     fn iter_mut(&mut self) -> IterMut<K, V, S> {
         IterMut { inner: self.first(), map: self, len: self.len() }
+    }
+}
+
+impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
+    #[inline]
+    fn make_hash<X: ? Sized>(&self, x: &X) -> HashUint where X: Hash {
+        hash_table::make_hash(&self.hash_builder, x)
+    }
+
+    pub fn with_hasher(hash_builder: S) -> Self {
+        HashMap::with_capacity_and_hasher(0, hash_builder)
+    }
+
+    fn erase(&mut self, entry: *mut HashEntry<K, V>) -> Option<(K, V)> {
+        debug_assert!(!entry.is_null());
+        debug_assert!(!entry.node_ptr().avl_node_ptr().empty());
+        self.hash_table.hash_erase(entry.node_ptr());
+        entry.node_ptr().avl_node_ptr().init();
+        let kv = key_deref_to_kv::<K, V>(entry.key());
+        entry.node_ptr().set_key_ptr(ptr::null());
+        entry.set_value(ptr::null_mut());
+        self.entry_fastbin.del(entry as VoidPtr);
+        let res = unsafe { Some(ptr::read(kv)) };
+        self.kv_fastbin.del(kv as VoidPtr);
+        res
+    }
+
+    #[inline]
+    fn find<Q: ? Sized>(&self, q: &Q) -> *mut HashEntry<K, V> where K: Borrow<Q>, Q: Ord + Hash {
+        let node = self.hash_table.hash_find(self.make_hash(q), q);
+        if node.is_null() {
+            ptr::null_mut()
+        } else {
+            node.deref_to_hash_entry()
+        }
+    }
+
+
+    #[inline]
+    pub fn get<Q: ? Sized>(&self, q: &Q) -> Option<&V> where K: Borrow<Q>, Q: Hash + Ord {
+        let entry = self.find(q);
+        if entry.is_null() {
+            return None;
+        }
+        unsafe { Some(&(*entry.value())) }
+    }
+
+    #[inline]
+    pub fn get_mut<Q: ? Sized>(&mut self, q: &Q) -> Option<&mut V> where K: Borrow<Q>, Q: Hash + Ord {
+        let entry = self.find(q);
+        if entry.is_null() {
+            return None;
+        }
+        unsafe { Some(&mut (*entry.value())) }
     }
 
     #[inline]
@@ -510,7 +537,7 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
     }
 }
 
-impl<K: Hash + Ord, V> HashMap<K, V, RandomState> {
+impl<K, V> HashMap<K, V, RandomState> where K: Hash + Ord {
     #[inline]
     pub fn new() -> HashMap<K, V, RandomState> {
         Default::default()
@@ -533,10 +560,10 @@ impl<K, V, S> Default for HashMap<K, V, S>
     }
 }
 
-impl<K, V, S> Drop for HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
+impl<K, V, S> Drop for HashMap<K, V, S> {
     #[inline]
     fn drop(&mut self) {
-        self.destroy();
+        self.clear();
     }
 }
 
@@ -644,6 +671,8 @@ impl<K, V, S> PartialEq for HashMap<K, V, S> where K: Ord + Hash, V: PartialEq, 
         self.iter().all(|(key, value)| other.get(key).map_or(false, |v| *value == *v))
     }
 }
+
+impl<K, V, S> Eq for HashMap<K, V, S> where K: Ord + Hash, V: Eq, S: BuildHasher {}
 
 #[cfg(test)]
 mod test {
@@ -900,5 +929,42 @@ mod test {
         assert!(a == b);
         b.remove(&99);
         assert!(a != b);
+    }
+
+    #[test]
+    fn test_from_iter() {
+        let xs = [(1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6)];
+        let map: HashMap<_, _> = xs.iter().cloned().collect();
+        for &(k, v) in &xs {
+            assert_eq!(map.get(&k), Some(&v));
+        }
+    }
+
+    #[test]
+    fn test_size_hint() {
+        let xs = [(1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6)];
+        let map: HashMap<_, _> = xs.iter().cloned().collect();
+        let mut iter = map.iter();
+        for _ in iter.by_ref().take(3) {}
+        assert_eq!(iter.size_hint(), (3, Some(3)));
+    }
+
+    #[test]
+    fn test_mut_size_hint() {
+        let xs = [(1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6)];
+        let mut map: HashMap<_, _> = xs.iter().cloned().collect();
+        let mut iter = map.iter_mut();
+        for _ in iter.by_ref().take(3) {}
+        assert_eq!(iter.size_hint(), (3, Some(3)));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_index_nonexistent() {
+        let mut map = HashMap::new();
+        map.insert(1, 2);
+        map.insert(2, 1);
+        map.insert(3, 4);
+        map[&4];
     }
 }

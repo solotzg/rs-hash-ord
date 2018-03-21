@@ -111,7 +111,7 @@ impl HashIndexPtrOperation for *mut HashIndex {
     }
 }
 
-pub struct HashTable<K, V> where K: Ord + Hash {
+pub struct HashTable<K, V> {
     count: usize,
     index_size: usize,
     index_mask: usize,
@@ -146,6 +146,147 @@ pub fn calc_limit(capacity: usize) -> usize {
 
 impl<K, V> HashTable<K, V> where K: Ord + Hash {
     #[inline]
+    pub fn hash_find<Q: ? Sized>(&self, hash_val: HashUint, q: &Q) -> *mut HashNode<K> where K: Borrow<Q>, Q: Ord {
+        let index = self.get_hash_index(hash_val);
+        let mut avl_node = index.avl_root_node();
+        while avl_node.not_null() {
+            let snode = avl_node.avl_hash_deref_mut::<K>();
+            let shash_val = snode.hash_val();
+            if hash_val == shash_val {
+                match unsafe { q.cmp((*snode.key_ptr()).borrow()) } {
+                    Ordering::Greater => { avl_node = avl_node.right(); }
+                    Ordering::Equal => { return snode; }
+                    Ordering::Less => { avl_node = avl_node.left(); }
+                }
+            } else {
+                avl_node = if hash_val < shash_val { avl_node.left() } else { avl_node.right() }
+            }
+        }
+        ptr::null_mut::<HashNode<K>>()
+    }
+
+    #[inline]
+    unsafe fn hash_track(&self, node: *mut HashNode<K>, parent: *mut AVLNodePtr) -> *mut AVLNodePtr {
+        let hash = node.hash_val();
+        let key = node.key_ptr();
+        let index = self.get_hash_index(hash);
+        let mut link = &mut index.avl_root_node() as *mut AVLNodePtr;
+        (*parent) = ptr::null_mut();
+        let mut tmp_node = ptr::null_mut();
+        while (*link).not_null() {
+            tmp_node = *link;
+            let snode = tmp_node.avl_hash_deref_mut::<K>();
+            let shash = snode.hash_val();
+            if shash == hash {
+                match (*key).cmp(&(*snode.key_ptr())) {
+                    Ordering::Equal => {
+                        *parent = tmp_node;
+                        return ptr::null_mut();
+                    }
+                    Ordering::Less => {
+                        link = tmp_node.left_mut();
+                    }
+                    Ordering::Greater => {
+                        link = tmp_node.right_mut();
+                    }
+                }
+            } else {
+                link = if hash < shash { tmp_node.left_mut() } else { tmp_node.right_mut() }
+            }
+        }
+        *parent = tmp_node;
+        link
+    }
+
+    fn hash_add(&mut self, node: *mut HashNode<K>) -> *mut HashNode<K> {
+        let index = self.get_hash_index(node.hash_val());
+        if index.avl_root_node().is_null() {
+            let tmp_node = node.avl_node_ptr();
+            index.set_avl_root_node(tmp_node);
+            tmp_node.reset(ptr::null_mut(), ptr::null_mut(), ptr::null_mut(), 1);
+            self.head_ptr().list_add_tail(index.node_ptr());
+        } else {
+            let mut parent = ptr::null_mut::<AVLNode>();
+            let link = unsafe { self.hash_track(node, &mut parent as *mut AVLNodePtr) };
+            if link.is_null() {
+                return parent.avl_hash_deref_mut::<K>();
+            }
+            unsafe { avl_node::link_node(node.avl_node_ptr(), parent, link); }
+            unsafe { avl_node::node_post_insert(node.avl_node_ptr(), index.avl_root_ptr()); }
+        }
+        self.count += 1;
+        ptr::null_mut()
+    }
+
+    pub fn hash_swap(&mut self, new_index: *mut HashIndex, new_index_size: usize) -> *mut HashIndex {
+        let old_index = self.index;
+        let mut head = ListHead::default();
+        let head_ptr = &mut head as ListHeadPtr;
+        assert_ne!(new_index, old_index);
+        self.index = new_index;
+        self.index_size = new_index_size;
+        self.index_mask = self.index_size - 1;
+        self.count = 0;
+        for i in 0..new_index_size as isize {
+            unsafe { self.index.offset(i).set_avl_root_node(ptr::null_mut()); }
+            unsafe { self.index.offset(i).node_ptr().list_init(); }
+        }
+        ListHeadPtr::list_replace(self.head_ptr(), head_ptr);
+        self.head_ptr().list_init();
+        while !head_ptr.list_is_empty() {
+            let index = head.next.hash_index_deref_mut();
+            self.recursive_hash_add(index.avl_root_node());
+            index.node_ptr().list_del_init();
+        }
+        return if old_index == self.init.as_mut_ptr() { ptr::null_mut() } else { old_index };
+    }
+
+    fn recursive_hash_add(&mut self, node: AVLNodePtr) {
+        if node.left().not_null() {
+            self.recursive_hash_add(node.left());
+        }
+        if node.right().not_null() {
+            self.recursive_hash_add(node.right());
+        }
+        let snode = node.avl_hash_deref_mut::<K>();
+        self.hash_add(snode);
+    }
+
+    #[inline]
+    pub fn rehash(&mut self, capacity: usize) {
+        let old_index_size = self.index_size;
+        let limit = calc_limit(capacity);
+        if old_index_size < limit {
+            let mut need = old_index_size;
+            while need < limit {
+                need *= 2;
+            }
+            let new_alloc_size = need * mem::size_of::<HashIndex>();
+            let buffer = unsafe {
+                Heap.alloc(Layout::from_size_align_unchecked(
+                    new_alloc_size, mem::align_of::<HashIndex>(),
+                ))
+            }.unwrap_or_else(|e| Heap.oom(e));
+            let data_ptr = self.hash_swap(buffer as *mut HashIndex, need);
+            if !data_ptr.is_null() {
+                unsafe {
+                    Heap.dealloc(data_ptr as *mut u8, Layout::from_size_align_unchecked(
+                        old_index_size * mem::size_of::<HashIndex>(), mem::align_of::<HashIndex>(),
+                    ));
+                }
+            }
+        }
+    }
+
+    pub fn new_with_box() -> Box<Self> {
+        let mut hash_table = Box::new(HashTable::new());
+        hash_table.init();
+        hash_table
+    }
+}
+
+impl<K, V> HashTable<K, V> {
+    #[inline]
     pub fn index_size(&self) -> usize {
         self.index_size
     }
@@ -177,18 +318,6 @@ impl<K, V> HashTable<K, V> where K: Ord + Hash {
         index.set_avl_root_node(ptr::null_mut());
         head.list_del_init();
         avl_node
-    }
-
-    fn destroy(&mut self) {
-        let old_index_size = self.index_size;
-        let data_ptr = self.hash_swap(ptr::null_mut(), 0);
-        if !data_ptr.is_null() {
-            unsafe {
-                Heap.dealloc(data_ptr as *mut u8, Layout::from_size_align_unchecked(
-                    old_index_size * mem::size_of::<HashIndex>(), mem::align_of::<HashIndex>(),
-                ));
-            }
-        }
     }
 
     #[inline]
@@ -316,26 +445,6 @@ impl<K, V> HashTable<K, V> where K: Ord + Hash {
     }
 
     #[inline]
-    pub fn hash_find<Q: ? Sized>(&self, hash_val: HashUint, q: &Q) -> *mut HashNode<K> where K: Borrow<Q>, Q: Ord {
-        let index = self.get_hash_index(hash_val);
-        let mut avl_node = index.avl_root_node();
-        while avl_node.not_null() {
-            let snode = avl_node.avl_hash_deref_mut::<K>();
-            let shash_val = snode.hash_val();
-            if hash_val == shash_val {
-                match unsafe { q.cmp((*snode.key_ptr()).borrow()) } {
-                    Ordering::Greater => { avl_node = avl_node.right(); }
-                    Ordering::Equal => { return snode; }
-                    Ordering::Less => { avl_node = avl_node.left(); }
-                }
-            } else {
-                avl_node = if hash_val < shash_val { avl_node.left() } else { avl_node.right() }
-            }
-        }
-        ptr::null_mut::<HashNode<K>>()
-    }
-
-    #[inline]
     pub fn hash_erase(&mut self, node: *mut HashNode<K>) {
         debug_assert!(!node.avl_node_ptr().empty());
         let index = self.get_hash_index(node.hash_val());
@@ -348,137 +457,16 @@ impl<K, V> HashTable<K, V> where K: Ord + Hash {
         node.avl_node_ptr().init();
         self.count -= 1;
     }
-
-    #[inline]
-    unsafe fn hash_track(&self, node: *mut HashNode<K>, parent: *mut AVLNodePtr) -> *mut AVLNodePtr {
-        let hash = node.hash_val();
-        let key = node.key_ptr();
-        let index = self.get_hash_index(hash);
-        let mut link = &mut index.avl_root_node() as *mut AVLNodePtr;
-        (*parent) = ptr::null_mut();
-        let mut tmp_node = ptr::null_mut();
-        while (*link).not_null() {
-            tmp_node = *link;
-            let snode = tmp_node.avl_hash_deref_mut::<K>();
-            let shash = snode.hash_val();
-            if shash == hash {
-                match (*key).cmp(&(*snode.key_ptr())) {
-                    Ordering::Equal => {
-                        *parent = tmp_node;
-                        return ptr::null_mut();
-                    }
-                    Ordering::Less => {
-                        link = tmp_node.left_mut();
-                    }
-                    Ordering::Greater => {
-                        link = tmp_node.right_mut();
-                    }
-                }
-            } else {
-                link = if hash < shash { tmp_node.left_mut() } else { tmp_node.right_mut() }
-            }
-        }
-        *parent = tmp_node;
-        link
-    }
-
-    fn hash_add(&mut self, node: *mut HashNode<K>) -> *mut HashNode<K> {
-        let index = self.get_hash_index(node.hash_val());
-        if index.avl_root_node().is_null() {
-            let tmp_node = node.avl_node_ptr();
-            index.set_avl_root_node(tmp_node);
-            tmp_node.reset(ptr::null_mut(), ptr::null_mut(), ptr::null_mut(), 1);
-            self.head_ptr().list_add_tail(index.node_ptr());
-        } else {
-            let mut parent = ptr::null_mut::<AVLNode>();
-            let link = unsafe { self.hash_track(node, &mut parent as *mut AVLNodePtr) };
-            if link.is_null() {
-                return parent.avl_hash_deref_mut::<K>();
-            }
-            unsafe { avl_node::link_node(node.avl_node_ptr(), parent, link); }
-            unsafe { avl_node::node_post_insert(node.avl_node_ptr(), index.avl_root_ptr()); }
-        }
-        self.count += 1;
-        ptr::null_mut()
-    }
-
-    pub fn hash_swap(&mut self, mut new_index: *mut HashIndex, mut new_index_size: usize) -> *mut HashIndex {
-        let old_index = self.index;
-        let mut head = ListHead::default();
-        let head_ptr = &mut head as ListHeadPtr;
-        let init_index = self.init.as_mut_ptr();
-        if new_index.is_null() {
-            if self.index == init_index {
-                return ptr::null_mut();
-            }
-            new_index = init_index;
-            new_index_size = self.init.len();
-        }
-        assert_ne!(new_index, old_index);
-        self.index = new_index;
-        self.index_size = new_index_size;
-        self.index_mask = self.index_size - 1;
-        self.count = 0;
-        for i in 0..new_index_size as isize {
-            unsafe { self.index.offset(i).set_avl_root_node(ptr::null_mut()); }
-            unsafe { self.index.offset(i).node_ptr().list_init(); }
-        }
-        ListHeadPtr::list_replace(self.head_ptr(), head_ptr);
-        self.head_ptr().list_init();
-        while !head_ptr.list_is_empty() {
-            let index = head.next.hash_index_deref_mut();
-            self.recursive_hash_add(index.avl_root_node());
-            index.node_ptr().list_del_init();
-        }
-        return if old_index == init_index { ptr::null_mut() } else { old_index };
-    }
-
-    fn recursive_hash_add(&mut self, node: AVLNodePtr) {
-        if node.left().not_null() {
-            self.recursive_hash_add(node.left());
-        }
-        if node.right().not_null() {
-            self.recursive_hash_add(node.right());
-        }
-        let snode = node.avl_hash_deref_mut::<K>();
-        self.hash_add(snode);
-    }
-
-    #[inline]
-    pub fn rehash(&mut self, capacity: usize) {
-        let old_index_size = self.index_size;
-        let limit = calc_limit(capacity);
-        if old_index_size < limit {
-            let mut need = old_index_size;
-            while need < limit {
-                need *= 2;
-            }
-            let new_alloc_size = need * mem::size_of::<HashIndex>();
-            let buffer = unsafe {
-                Heap.alloc(Layout::from_size_align_unchecked(
-                    new_alloc_size, mem::align_of::<HashIndex>(),
-                ))
-            }.unwrap_or_else(|e| Heap.oom(e));
-            let data_ptr = self.hash_swap(buffer as *mut HashIndex, need);
-            if !data_ptr.is_null() {
-                unsafe {
-                    Heap.dealloc(data_ptr as *mut u8, Layout::from_size_align_unchecked(
-                        old_index_size * mem::size_of::<HashIndex>(), mem::align_of::<HashIndex>(),
-                    ));
-                }
-            }
-        }
-    }
-
-    pub fn new_with_box() -> Box<Self> {
-        let mut hash_table = Box::new(HashTable::new());
-        hash_table.init();
-        hash_table
-    }
 }
 
-impl<K, V> Drop for HashTable<K, V> where K: Ord + Hash {
+impl<K, V> Drop for HashTable<K, V> {
     fn drop(&mut self) {
-        self.destroy();
+        if self.index != self.init.as_mut_ptr() {
+            unsafe {
+                Heap.dealloc(self.index as *mut u8, Layout::from_size_align_unchecked(
+                    self.index_size * mem::size_of::<HashIndex>(), mem::align_of::<HashIndex>(),
+                ));
+            }
+        }
     }
 }
