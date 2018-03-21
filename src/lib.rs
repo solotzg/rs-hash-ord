@@ -2,10 +2,10 @@
 #![allow(dead_code)]
 
 #[macro_use]
-pub mod macros;
+mod macros;
 pub mod avl;
-pub mod hash_table;
+mod hash_table;
 pub mod hash_map;
-pub mod avl_node;
-pub mod list;
-pub mod fastbin;
+mod avl_node;
+mod list;
+mod fastbin;
