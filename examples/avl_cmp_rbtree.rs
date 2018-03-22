@@ -1,9 +1,9 @@
-extern crate hash_avl;
+extern crate hash_ord;
 extern crate time;
 extern crate rbtree;
 extern crate rand;
 
-use hash_avl::avl::AVLTree as Tree;
+use hash_ord::ord_map::OrdMap;
 
 pub fn default_make_avl_element(n: usize) -> Vec<i32> {
     let mut v = vec![0i32; n];
@@ -19,7 +19,7 @@ pub fn default_make_avl_element(n: usize) -> Vec<i32> {
 fn run(n: usize) {
     println!("\navl tree");
     let v = default_make_avl_element(n);
-    let mut t = Tree::new();
+    let mut t = OrdMap::new();
     let start = time::now();
     for d in &v {
         t.insert(*d, *d * 2);

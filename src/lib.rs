@@ -3,7 +3,7 @@
 
 #[macro_use]
 mod macros;
-pub mod avl;
+pub mod ord_map;
 mod hash_table;
 pub mod hash_map;
 mod avl_node;

@@ -72,7 +72,7 @@ impl AVLTreeNodeOperation for *mut AVLNode {
 }
 
 pub struct Cursors<'a, K, V> where K: Ord + 'a, V: 'a {
-    tree_mut: &'a mut AVLTree<K, V>,
+    tree_mut: &'a mut OrdMap<K, V>,
     pos: AVLNodePtr,
 }
 
@@ -130,14 +130,14 @@ impl<'a, K, V> Cursors<'a, K, V> where K: Ord {
     }
 }
 
-pub struct AVLTree<K, V> where K: Ord {
+pub struct OrdMap<K, V> where K: Ord {
     root: AVLRoot,
     count: usize,
     entry_fastbin: Fastbin,
     _marker: marker::PhantomData<(K, V)>,
 }
 
-impl<K, V> AVLTree<K, V> where K: Ord {
+impl<K, V> OrdMap<K, V> where K: Ord {
     #[inline]
     pub fn find_cursors<Q>(&mut self, q: &Q) -> Cursors<K, V> where K: Borrow<Q>, Q: Ord {
         let node = self.find_node(q);
@@ -171,7 +171,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
 
     #[inline]
     pub fn new() -> Self {
-        AVLTree {
+        OrdMap {
             root: Default::default(),
             count: 0,
             entry_fastbin: Fastbin::new(mem::size_of::<AVLEntry<K, V>>()),
@@ -208,8 +208,8 @@ impl<K, V> AVLTree<K, V> where K: Ord {
         node
     }
 
-    pub fn clone_from(t: &AVLTree<K, V>) -> Self where K: Clone, V: Clone {
-        let mut tree = AVLTree {
+    pub fn clone_from(t: &OrdMap<K, V>) -> Self where K: Clone, V: Clone {
+        let mut tree = OrdMap {
             root: Default::default(),
             count: 0,
             entry_fastbin: Fastbin::new(mem::size_of::<AVLEntry<K, V>>()),
@@ -266,7 +266,7 @@ impl<K, V> AVLTree<K, V> where K: Ord {
 
 
     #[inline]
-    fn isomorphic(&self, t: &AVLTree<K, V>) -> bool {
+    fn isomorphic(&self, t: &OrdMap<K, V>) -> bool {
         if self.size() != t.size() {
             return false;
         }
@@ -462,19 +462,19 @@ impl<K, V> AVLTree<K, V> where K: Ord {
     }
 }
 
-impl<K, V> Drop for AVLTree<K, V> where K: Ord {
+impl<K, V> Drop for OrdMap<K, V> where K: Ord {
     fn drop(&mut self) {
         self.destroy();
     }
 }
 
-impl<K, V> Clone for AVLTree<K, V> where K: Ord + Clone, V: Clone {
+impl<K, V> Clone for OrdMap<K, V> where K: Ord + Clone, V: Clone {
     fn clone(&self) -> Self {
-        AVLTree::clone_from(self)
+        OrdMap::clone_from(self)
     }
 }
 
-impl<'a, K, V> Index<&'a K> for AVLTree<K, V> where K: Ord {
+impl<'a, K, V> Index<&'a K> for OrdMap<K, V> where K: Ord {
     type Output = V;
 
     #[inline]
@@ -483,15 +483,15 @@ impl<'a, K, V> Index<&'a K> for AVLTree<K, V> where K: Ord {
     }
 }
 
-impl<K, V> FromIterator<(K, V)> for AVLTree<K, V> where K: Ord {
-    fn from_iter<T: IntoIterator<Item=(K, V)>>(iter: T) -> AVLTree<K, V> {
-        let mut tree = AVLTree::new();
+impl<K, V> FromIterator<(K, V)> for OrdMap<K, V> where K: Ord {
+    fn from_iter<T: IntoIterator<Item=(K, V)>>(iter: T) -> OrdMap<K, V> {
+        let mut tree = OrdMap::new();
         tree.extend(iter);
         tree
     }
 }
 
-impl<K, V> Extend<(K, V)> for AVLTree<K, V> where K: Ord {
+impl<K, V> Extend<(K, V)> for OrdMap<K, V> where K: Ord {
     fn extend<T: IntoIterator<Item=(K, V)>>(&mut self, iter: T) {
         let iter = iter.into_iter();
         for (k, v) in iter {
@@ -635,7 +635,7 @@ impl<K, V> Iterator for IntoIter<K, V> where K: Ord {
     }
 }
 
-impl<K, V> IntoIterator for AVLTree<K, V> where K: Ord {
+impl<K, V> IntoIterator for OrdMap<K, V> where K: Ord {
     type Item = (K, V);
     type IntoIter = IntoIter<K, V>;
 
@@ -775,13 +775,13 @@ impl<'a, K: Ord + 'a, V: 'a> DoubleEndedIterator for IterMut<'a, K, V> {
 pub mod test {
     extern crate rand;
 
-    use avl::AVLTree;
+    use ord_map::OrdMap;
     use std::cmp::Ordering;
-    use avl::AVLTreeNodeOperation;
+    use ord_map::AVLTreeNodeOperation;
     use avl_node::AVLNodePtrBase;
     use std::cell::RefCell;
 
-    type DefaultType = AVLTree<i32, Option<i32>>;
+    type DefaultType = OrdMap<i32, Option<i32>>;
 
     #[test]
     fn test_avl_basic() {
@@ -891,7 +891,7 @@ pub mod test {
             }
         }
 
-        let mut t = AVLTree::<MyData, Option<i32>>::new();
+        let mut t = OrdMap::<MyData, Option<i32>>::new();
         {
             t.insert(MyData { a: 1 }, None);
             assert_eq!(*t.root.node.key_ref::<MyData, Option<i32>>(), MyData { a: 1 });
@@ -938,7 +938,7 @@ pub mod test {
     #[test]
     fn test_avl_validate() {
         let test_num = 1000usize;
-        let mut t = AVLTree::new();
+        let mut t = OrdMap::new();
         for i in 0..test_num {
             t.insert(i, i);
         }
@@ -966,7 +966,7 @@ pub mod test {
         }
         let cnt = RefCell::new(0);
         let test_num = 200;
-        let mut map = AVLTree::new();
+        let mut map = OrdMap::new();
         for i in 0..test_num {
             map.insert(i, Node { b: &cnt });
         }
@@ -982,15 +982,15 @@ pub mod test {
         let tb = ta.clone();
         assert!(ta.isomorphic(&tb));
 
-        let ta = AVLTree::<i32, i32>::new();
-        let tb = AVLTree::<i32, i32>::new();
+        let ta = OrdMap::<i32, i32>::new();
+        let tb = OrdMap::<i32, i32>::new();
         assert!(ta.isomorphic(&tb));
     }
 
     #[test]
     fn test_avl_iteration() {
         let v = default_make_avl_element(100);
-        let mut t = AVLTree::new();
+        let mut t = OrdMap::new();
         for x in &v {
             t.insert(*x, -*x);
         }
@@ -1004,9 +1004,9 @@ pub mod test {
 
     #[test]
     fn test_avl_extend_iter() {
-        let mut a = AVLTree::new();
+        let mut a = OrdMap::new();
         a.insert(2, 2);
-        let mut b = AVLTree::new();
+        let mut b = OrdMap::new();
         b.insert(1, 1);
         b.insert(3, 3);
         a.extend(b.into_iter());
@@ -1019,7 +1019,7 @@ pub mod test {
     #[test]
     fn test_avl_keys() {
         let mut v = default_make_avl_element(100);
-        let mut t = AVLTree::new();
+        let mut t = OrdMap::new();
         for x in &v {
             t.insert(*x, -*x);
         }
@@ -1034,7 +1034,7 @@ pub mod test {
     #[test]
     fn test_avl_values() {
         let mut v = default_make_avl_element(100);
-        let mut t = AVLTree::new();
+        let mut t = OrdMap::new();
         for x in &v {
             t.insert(*x, -*x);
         }
@@ -1103,7 +1103,7 @@ pub mod test {
         }
         let cnt = RefCell::new(0);
         let test_num = 111;
-        let mut map = AVLTree::new();
+        let mut map = OrdMap::new();
         for i in 0..test_num {
             map.insert(i, Node { b: &cnt });
         }

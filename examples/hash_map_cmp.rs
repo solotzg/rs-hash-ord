@@ -1,8 +1,8 @@
-extern crate hash_avl;
+extern crate hash_ord;
 extern crate time;
 extern crate rand;
 
-use hash_avl::hash_map;
+use hash_ord::hash_map;
 use std::collections::HashMap as STLHashMap;
 
 pub fn default_make_avl_element(n: usize) -> Vec<i32> {
