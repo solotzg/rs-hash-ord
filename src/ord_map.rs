@@ -151,11 +151,11 @@ impl<K, V> OrdMap<K, V> where K: Ord {
 
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.size() == 0
+        self.count == 0
     }
 
     #[inline]
-    pub fn size(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.count
     }
 
@@ -267,7 +267,7 @@ impl<K, V> OrdMap<K, V> where K: Ord {
 
     #[inline]
     fn isomorphic(&self, t: &OrdMap<K, V>) -> bool {
-        if self.size() != t.size() {
+        if self.len() != t.len() {
             return false;
         }
         self.root.node.isomorphic(t.root.node)
@@ -281,7 +281,7 @@ impl<K, V> OrdMap<K, V> where K: Ord {
         let mut iter = self.iter();
         let first = iter.next();
         if first.is_none() {
-            return iter.size_hint().0 == self.size() && self.root.node.is_null();
+            return iter.size_hint().0 == self.len() && self.root.node.is_null();
         }
         let mut prev = first;
         let mut cnt = 1usize;
@@ -297,14 +297,14 @@ impl<K, V> OrdMap<K, V> where K: Ord {
                 }
             }
         }
-        cnt == self.size()
+        cnt == self.len()
     }
 
     fn bst_check_reverse(&self) -> bool {
         let mut iter = self.iter();
         let first = iter.next_back();
         if first.is_none() {
-            return iter.size_hint().0 == self.size() && self.root.node.is_null();
+            return iter.size_hint().0 == self.len() && self.root.node.is_null();
         }
         let mut prev = first;
         let mut cnt = 1usize;
@@ -320,7 +320,7 @@ impl<K, V> OrdMap<K, V> where K: Ord {
                 }
             }
         }
-        cnt == self.size()
+        cnt == self.len()
     }
 
     #[inline]
@@ -344,7 +344,7 @@ impl<K, V> OrdMap<K, V> where K: Ord {
     }
 
     #[inline]
-    pub fn contain<Q: ? Sized>(&self, q: &Q) -> bool where K: Borrow<Q>, Q: Ord {
+    pub fn contains_key<Q: ? Sized>(&self, q: &Q) -> bool where K: Borrow<Q>, Q: Ord {
         self.find_node(q).not_null()
     }
 
@@ -442,21 +442,21 @@ impl<K, V> OrdMap<K, V> where K: Ord {
     }
 
     #[inline]
-    fn iter(&self) -> Iter<K, V> {
+    pub fn iter(&self) -> Iter<K, V> {
         Iter {
             head: self.first_node(),
             tail: self.last_node(),
-            len: self.size(),
+            len: self.len(),
             _marker: marker::PhantomData,
         }
     }
 
     #[inline]
-    fn iter_mut(&mut self) -> IterMut<K, V> {
+    pub fn iter_mut(&mut self) -> IterMut<K, V> {
         IterMut {
             head: self.first_node(),
             tail: self.last_node(),
-            len: self.size(),
+            len: self.len(),
             _marker: marker::PhantomData,
         }
     }
@@ -653,7 +653,7 @@ impl<K, V> IntoIterator for OrdMap<K, V> where K: Ord {
             IntoIter {
                 head: self.first_node(),
                 tail: self.last_node(),
-                len: self.size(),
+                len: self.len(),
                 entry_fastbin: self.entry_fastbin.move_to(),
                 _marker: marker::PhantomData,
             }
@@ -908,7 +908,7 @@ pub mod test {
     #[test]
     fn test_avl_find() {
         let t = default_build_avl(1000);
-        for num in 0..t.size() {
+        for num in 0..t.len() {
             let x = num as i32;
             assert_eq!(*t.get(&x).unwrap(), Some(-x));
         }
@@ -928,7 +928,7 @@ pub mod test {
     pub fn default_build_avl(n: usize) -> DefaultType {
         let v = default_make_avl_element(n);
         let mut t = DefaultType::new();
-        assert_eq!(t.size(), 0);
+        assert_eq!(t.len(), 0);
         for d in &v {
             t.insert(*d, Some(-*d));
         }
@@ -942,7 +942,7 @@ pub mod test {
         for i in 0..test_num {
             t.insert(i, i);
         }
-        assert_eq!(t.size(), test_num);
+        assert_eq!(t.len(), test_num);
         assert_eq!(t.root.node.height(), 10);
         let left = t.root.node.left();
         assert_eq!(left.height(), 9);
@@ -1010,7 +1010,7 @@ pub mod test {
         b.insert(1, 1);
         b.insert(3, 3);
         a.extend(b.into_iter());
-        assert_eq!(a.size(), 3);
+        assert_eq!(a.len(), 3);
         assert_eq!(a[&1], 1);
         assert_eq!(a[&2], 2);
         assert_eq!(a[&3], 3);
@@ -1032,7 +1032,7 @@ pub mod test {
     }
 
     #[test]
-    fn test_avl_values() {
+    fn test_avl_values_index() {
         let mut v = default_make_avl_element(100);
         let mut t = OrdMap::new();
         for x in &v {
@@ -1084,7 +1084,7 @@ pub mod test {
 
             cursors.erase_then_prev(|_| {});
         }
-        assert_eq!(t.size(), 97);
+        assert_eq!(t.len(), 97);
         {
             let cursors = t.find_cursors(&55);
             assert!(cursors.get().is_none());

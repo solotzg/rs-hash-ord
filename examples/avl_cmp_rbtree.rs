@@ -26,13 +26,13 @@ fn run(n: usize) {
     }
     let end = time::now();
     let duration = end - start;
-    println!("size {}", t.size());
+    println!("size {}", t.len());
     println!("build time {} ", duration);
     assert!(t.check_valid());
     let mut count = 0;
     let start = time::now();
     for num in &v {
-        count += if t.contain(num) {
+        count += if t.contains_key(num) {
             1
         } else {
             0
