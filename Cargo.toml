@@ -2,8 +2,12 @@
 name = "hash_ord"
 version = "0.1.0"
 authors = ["Tong Zhigao <solotzg@gmail.com>"]
+description = "A rust lib contains OrdMap(avl tree) and HashMap(use avl to resolve collision);"
+readme = "README.md"
+license = "MIT"
+repository = "https://github.com/solotzg/rs-hash-ord.git"
+keywords = ["HashMap", "AVL", "OrdMap"]
 
-[dependencies]
+[dev-dependencies]
 rand = "0.4.2"
 time = "0.1.39"
-#rbtree = "0.1.5"
