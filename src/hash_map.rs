@@ -714,7 +714,7 @@ impl<'a, K, V, S> IntoIterator for &'a HashMap<K, V, S>
 }
 
 impl<'a, K, V, S> IntoIterator for &'a mut HashMap<K, V, S>
-    where K: Eq + Hash,
+    where K: Ord + Hash,
           S: BuildHasher
 {
     type Item = (&'a K, &'a mut V);

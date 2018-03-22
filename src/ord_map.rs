@@ -474,6 +474,20 @@ impl<K, V> Clone for OrdMap<K, V> where K: Ord + Clone, V: Clone {
     }
 }
 
+impl<K, V> PartialEq for OrdMap<K, V> where K: Eq + Ord, V: PartialEq, {
+    fn eq(&self, other: &OrdMap<K, V>) -> bool {
+        if self.len() != other.len() {
+            return false;
+        }
+
+        self.iter().all(|(key, value)| {
+            other.get(key).map_or(false, |v| *value == *v)
+        })
+    }
+}
+
+impl<K, V> Eq for OrdMap<K, V> where K: Eq + Ord, V: Eq {}
+
 impl<'a, K, V> Index<&'a K> for OrdMap<K, V> where K: Ord {
     type Output = V;
 
@@ -976,15 +990,17 @@ pub mod test {
     }
 
     #[test]
-    fn test_avl_clone() {
-        let test_num = 500usize;
+    fn test_avl_clone_eq() {
+        let test_num = 100usize;
         let ta = default_build_avl(test_num);
         let tb = ta.clone();
         assert!(ta.isomorphic(&tb));
+        assert!(ta == tb);
 
         let ta = OrdMap::<i32, i32>::new();
         let tb = OrdMap::<i32, i32>::new();
         assert!(ta.isomorphic(&tb));
+        assert!(ta == tb);
     }
 
     #[test]
@@ -1117,6 +1133,15 @@ pub mod test {
         assert_eq!(*cnt.borrow(), test_num);
         map.clear();
         assert_eq!(*cnt.borrow(), test_num * 2 - test_num / 2);
+    }
+
+    #[test]
+    fn test_from_iter() {
+        let xs = [(1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6)];
+        let map: OrdMap<_, _> = xs.iter().cloned().collect();
+        for &(k, v) in &xs {
+            assert_eq!(map.get(&k), Some(&v));
+        }
     }
 }
 

@@ -41,7 +41,7 @@ find time PT0.570363857S
 remove time PT0.641548505S 
 insert after remove time PT0.613216248S 
 clear time PT0.162732696S 
---------------------------------
+--------------------------------------------
 
 avl tree
 size 10000000
@@ -60,7 +60,7 @@ find time PT11.286116786S
 remove time PT12.362542744S 
 insert after remove time PT12.062266663S 
 clear time PT2.479094958S 
---------------------------------
+--------------------------------------------
 ```
 ## HashMap Competition
 Run commend

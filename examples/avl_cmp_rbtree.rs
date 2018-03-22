@@ -106,7 +106,7 @@ fn run(n: usize) {
     let end = time::now();
     let duration = end - start;
     println!("clear time {} ", duration);
-    println!("--------------------------------");
+    println!("--------------------------------------------");
 }
 
 fn main() {
