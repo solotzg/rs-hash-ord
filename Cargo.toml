@@ -6,4 +6,4 @@ authors = ["Tong Zhigao <solotzg@gmail.com>"]
 [dependencies]
 rand = "0.4.2"
 time = "0.1.39"
-rbtree = "0.1.5"
+#rbtree = "0.1.5"
