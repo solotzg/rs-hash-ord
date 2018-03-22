@@ -11,7 +11,6 @@ use avl_node::{AVLNodePtrBase, AVLNodePtr};
 use hash_table::HashIndexPtrOperation;
 use hash_table::HashNodeOperation;
 use list::ListHeadPtrFn;
-use std::cmp::Ordering;
 use avl_node;
 use std::ops::Index;
 use std::borrow::Borrow;
@@ -186,55 +185,13 @@ impl<K, V> HashNodeDerefToHashEntry<K, V> for *mut HashNode<K> {
 }
 
 #[inline]
-unsafe fn find_duplicate_hash_node<K>(mut link: *mut AVLNodePtr, new_key: *mut K, hash_val: HashUint)
-                                      -> (*mut HashNode<K>, AVLNodePtr, *mut AVLNodePtr) where K: Ord
-{
-    let mut parent = ptr::null_mut();
-    let mut duplicate = ptr::null_mut();
-    while !(*link).is_null() {
-        parent = *link;
-        let snode = parent.avl_hash_deref_mut::<K>();
-        let snode_hash = snode.hash_val();
-        if hash_val != snode_hash {
-            link = if hash_val < snode_hash { parent.left_mut() } else { parent.right_mut() };
-        } else {
-            match (*new_key).cmp(&(*snode.key_ptr())) {
-                Ordering::Equal => {
-                    duplicate = snode;
-                    break;
-                }
-                Ordering::Less => { link = parent.left_mut(); }
-                Ordering::Greater => { link = parent.right_mut(); }
-            }
-        }
-    }
-    (duplicate, parent, link)
-}
-
 unsafe fn hash_table_update<K, V>(hash_table: &mut HashTable<K, V>, new_entry: *mut InternalHashEntry<K, V>) -> *mut InternalHashEntry<K, V> where K: Ord + Hash {
-    let new_node = new_entry.node_ptr();
-    let hash_val = new_node.hash_val();
-    let index = hash_table.get_hash_index(hash_val);
-    let link = index.avl_root_node_ptr();
-    // for runtime, this part doesn't need to be combined into avl insertion
-    if (*link).is_null() {
-        new_node.avl_node_ptr().reset(ptr::null_mut(), ptr::null_mut(), ptr::null_mut(), 1);
-        (*link) = new_node.avl_node_ptr();
-        hash_table.head_ptr().list_add_tail(index.node_ptr());
-        hash_table.inc_count(1);
-        return ptr::null_mut();
-    }
-    let (duplicate, parent, link) = find_duplicate_hash_node(link, new_entry.key(), hash_val);
-    if !duplicate.is_null() {
-        let old_entry = duplicate.deref_to_hash_entry();
-        avl_node::avl_node_replace(duplicate.avl_node_ptr(), new_node.avl_node_ptr(), index.avl_root_ptr());
-        return old_entry;
-    }
-    debug_assert_ne!(parent, new_node.avl_node_ptr());
     debug_assert!(!new_entry.is_null());
-    avl_node::link_node(new_node.avl_node_ptr(), parent, link);
-    avl_node::node_post_insert(new_node.avl_node_ptr(), index.avl_root_ptr());
-    hash_table.inc_count(1);
+    let new_node = new_entry.node_ptr();
+    let duplicate = hash_table.hash_add(new_node);
+    if !duplicate.is_null() {
+        return duplicate.deref_to_hash_entry();
+    }
     ptr::null_mut()
 }
 
@@ -519,7 +476,7 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
     pub fn entry(&mut self, mut key: K) -> Entry<K, V, S> {
         let hash_val = self.make_hash(&key);
         let link = self.hash_table.get_hash_index(hash_val).avl_root_node_ptr();
-        let (duplicate, parent, link) = unsafe { find_duplicate_hash_node(link, &mut key as *mut K, hash_val) };
+        let (duplicate, parent, link) = unsafe { hash_table::find_duplicate_hash_node(link, &mut key as *mut K, hash_val) };
         if duplicate.is_null() {
             return Entry::Vacant(VacantEntry {
                 hash_value: hash_val,
@@ -550,10 +507,7 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
         debug_assert!(!entry.is_null());
         debug_assert!(!entry.node_ptr().avl_node_ptr().empty());
         self.hash_table.hash_erase(entry.node_ptr());
-        entry.node_ptr().avl_node_ptr().init();
         let kv = key_deref_to_kv::<K, V>(entry.key());
-        entry.node_ptr().set_key_ptr(ptr::null_mut());
-        entry.set_value(ptr::null_mut());
         self.entry_fastbin.del(entry as VoidPtr);
         let res = unsafe { Some(ptr::read(kv)) };
         self.kv_fastbin.del(kv as VoidPtr);
@@ -617,8 +571,8 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
         }
     }
 
-    pub fn remove(&mut self, key: &K) -> Option<(K, V)> {
-        let entry = self.find(key);
+    pub fn remove<Q: ? Sized>(&mut self, q: &Q) -> Option<(K, V)> where K: Borrow<Q>, Q: Hash + Ord {
+        let entry = self.find(q);
         if entry.is_null() {
             return None;
         }

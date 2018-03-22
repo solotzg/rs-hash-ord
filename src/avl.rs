@@ -139,9 +139,9 @@ pub struct AVLTree<K, V> where K: Ord {
 
 impl<K, V> AVLTree<K, V> where K: Ord {
     #[inline]
-    pub fn find_cursors<'a, Q>(tree: &'a mut AVLTree<K, V>, q: &Q) -> Cursors<'a, K, V> where K: Borrow<Q>, Q: Ord {
-        let node = tree.find_node(q);
-        Cursors { tree_mut: tree, pos: node }
+    pub fn find_cursors<Q>(&mut self, q: &Q) -> Cursors<K, V> where K: Borrow<Q>, Q: Ord {
+        let node = self.find_node(q);
+        Cursors { tree_mut: self, pos: node }
     }
 
     #[inline]
@@ -1050,7 +1050,7 @@ pub mod test {
     fn test_avl_cursors() {
         let mut t = default_build_avl(100);
         {
-            let mut cursors = AVLTree::find_cursors(&mut t, &50);
+            let mut cursors = t.find_cursors(&50);
             assert_eq!(*cursors.get().unwrap().0, 50);
             for _ in 0..10 {
                 cursors.next();
@@ -1086,7 +1086,7 @@ pub mod test {
         }
         assert_eq!(t.size(), 97);
         {
-            let cursors = AVLTree::find_cursors(&mut t, &55);
+            let cursors = t.find_cursors(&55);
             assert!(cursors.get().is_none());
         }
     }
