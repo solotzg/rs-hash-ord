@@ -6,8 +6,8 @@ extern crate test;
 extern crate rand;
 extern crate hash_ord;
 
-use hash_ord_map::ord_map::OrdMap as Tree;
-use hash_ord_map::ord_map::test::{default_build_avl, default_make_avl_element};
+use hash_ord::ord_map::OrdMap as Tree;
+use hash_ord::ord_map::test::{default_build_avl, default_make_avl_element};
 
 #[bench]
 fn bench_avl_build(b: &mut test::Bencher) {

@@ -1,9 +1,11 @@
 extern crate hash_ord;
 extern crate time;
-extern crate rbtree;
 extern crate rand;
 
+mod rbtree_by_tickdream125;
+
 use hash_ord::ord_map::OrdMap;
+use rbtree_by_tickdream125::RBTree;
 
 pub fn default_make_avl_element(n: usize) -> Vec<i32> {
     let mut v = vec![0i32; n];
@@ -65,7 +67,7 @@ fn run(n: usize) {
     drop(t);
 
     println!("\nrbtree");
-    let mut t = rbtree::RBTree::new();
+    let mut t = RBTree::new();
     let start = time::now();
     for d in &v {
         t.insert(*d, *d * 2);
