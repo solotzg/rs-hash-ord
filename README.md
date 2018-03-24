@@ -17,7 +17,6 @@ Linux version 4.4.0-1049-aws (buildd@lcy01-amd64-001) (gcc version 5.4.0 2016060
 Intel(R) Xeon(R) CPU E5-2676 v3 @ 2.40GHz
 ```
 ## AVL Compare with RBTree
-Somebody has already implemented RBTree, append `rbtree = "0.1.5"` to your `Cargo.toml [dependencies]`, then run commend
 ```
 cargo run --release --example avl_cmp_rbtree
 ```
@@ -65,32 +64,83 @@ clear time PT2.479094958S
 ## HashMap Competition
 Run commend
 ```
-cargo run --release --example hash_map_cmp
+cargo run --release --example hash_map_cmp_string
 ```
-* Our HashMap performs better in case of insert and search.
-* When facing Collision Attack, the runtime complexity of STL HashMap can be _O(n)_, but ours is _O(log n)_.
+* If the type of key is `String`, ours performs better in case of `insert` and `search`, Because Fastbin makes rehashing
+run faster and comparable hash node helps to reduce search time.
 ```
 test hash avl map
-insert time PT0.271783330S
+insert time PT0.264062182S
 max node num of single index: 7
-find 1000000, time PT0.244095811S
-remove time PT0.301936260S
+find 1000000, time PT0.232942470S
+remove time PT0.303657020S
 
 test stl hash map
-insert time PT0.395503723S
-find 1000000, time PT0.252295697S
-remove time PT0.291297694S
+insert time PT0.382943597S
+find 1000000, time PT0.254504066S
+remove time PT0.297953633S
 --------------------------------
 
 test hash avl map
-insert time PT1.611267195S
+insert time PT1.623697494S
 max node num of single index: 8
-find 5000000, time PT1.287719966S
-remove time PT1.672060759S
+find 5000000, time PT1.374587816S
+remove time PT1.712209458S
 
 test stl hash map
-insert time PT2.149665549S
-find 5000000, time PT1.454428664S
-remove time PT1.600728169S
+insert time PT2.146439362S
+find 5000000, time PT1.494242541S
+remove time PT1.613802131S
 --------------------------------
 ```
+* However, if type is usize|isize|f32... , which means the cost of key comparing and memory copying are low, then 
+STL HashMap sometimes performs better in case of `insert` and `remove`.
+```
+cargo run --release --example hash_map_cmp_usize
+```
+```
+test hash avl map
+insert time PT0.134678145S
+max node num of single index: 8
+find 1000000, time PT0.118454962S
+remove time PT0.126796283S
+
+test stl hash map
+insert time PT0.126203898S
+find 1000000, time PT0.099042480S
+remove time PT0.104399187S
+--------------------------------
+
+test hash avl map
+insert time PT0.996003799S
+max node num of single index: 8
+find 5000000, time PT0.774285169S
+remove time PT0.836908472S
+
+test stl hash map
+insert time PT0.982269496S
+find 5000000, time PT0.868572380S
+remove time PT0.835186910S
+--------------------------------
+```
+* When facing Collision Attack, the runtime complexity of STL HashMap can be _O(n^2)_, but ours is _O(n log n)_.
+```
+cargo run --release --example hash_map_cmp_collision
+```
+```
+test hash avl map
+insert time PT0.000739762S
+max node num of single index: 10000
+find 10000, time PT0.000690444S
+remove time PT0.000497103S
+
+test stl hash map
+insert time PT0.093169479S
+find 10000, time PT0.079600027S
+remove time PT0.089153558S
+--------------------------------
+```
+# Conclusion
+* Rust is called `zero cost abstraction`, of course that's true. But comparing with C/C++, its compiler optimization is not good enough. 
+In C/C++, syntax like `a = ( b < c ) ? d : e` may not generate branch, which means search operation on AVL could be better 
+when the type of key is `1~8 Bytes`
