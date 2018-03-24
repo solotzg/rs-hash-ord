@@ -2,10 +2,10 @@ use std::ptr;
 use std::cmp::max;
 
 pub struct AVLNode {
-    left: AVLNodePtr,
-    right: AVLNodePtr,
-    parent: AVLNodePtr,
-    height: i32,
+    pub left: AVLNodePtr,
+    pub right: AVLNodePtr,
+    pub parent: AVLNodePtr,
+    pub height: i32,
 }
 
 #[derive(Copy, Clone)]

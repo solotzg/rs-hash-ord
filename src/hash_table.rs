@@ -3,7 +3,6 @@ use std::mem;
 use std::ptr;
 use avl_node::{AVLNodePtr, AVLNode, AVLNodePtrBase, AVLRoot, AVLRootPtr};
 use avl_node;
-use std::cmp::Ordering;
 use list::{ListHeadPtr, ListHead, ListHeadPtrFn};
 use std::hash::Hash;
 use std::hash::BuildHasher;
@@ -11,10 +10,18 @@ use std::hash::Hasher;
 use std::heap::{Heap, Alloc, Layout};
 use std::cmp;
 use std::borrow::Borrow;
+use std::cmp::Ordering;
 
 pub type HashUint = usize;
 
 const AVL_HASH_INIT_SIZE: usize = 8;
+
+const DEFAULT_AVL_NODE: AVLNode = AVLNode {
+    left: ptr::null_mut(),
+    right: ptr::null_mut(),
+    parent: ptr::null_mut(),
+    height: 1i32,
+};
 
 pub struct HashNode<K> {
     pub hash_val: HashUint,
@@ -149,40 +156,35 @@ pub unsafe fn find_duplicate_hash_node<K>(mut link: *mut AVLNodePtr, new_key: *m
                                           -> (*mut HashNode<K>, AVLNodePtr, *mut AVLNodePtr) where K: Ord
 {
     let mut parent = ptr::null_mut();
-    let mut duplicate = ptr::null_mut();
     while !(*link).is_null() {
         parent = *link;
         let snode = parent.avl_hash_deref_mut::<K>();
         let snode_hash = snode.hash_val();
         if hash_val != snode_hash {
-            link = if hash_val < snode_hash { parent.left_mut() } else { parent.right_mut() };
+            link = if hash_val < snode_hash { &mut (*parent).left } else { &mut (*parent).right };
         } else {
             match (*new_key).cmp(&(*snode.key_ptr())) {
-                Ordering::Equal => {
-                    duplicate = snode;
-                    break;
-                }
-                Ordering::Less => { link = parent.left_mut(); }
-                Ordering::Greater => { link = parent.right_mut(); }
+                Ordering::Equal => { return (snode, parent, link); }
+                Ordering::Less => { link = &mut (*parent).left; }
+                Ordering::Greater => { link = &mut (*parent).right; }
             }
         }
     }
-    (duplicate, parent, link)
+    (ptr::null_mut(), parent, link)
 }
 
 impl<K, V> HashTable<K, V> where K: Ord + Hash {
     #[inline]
     pub fn hash_find<Q: ? Sized>(&self, hash_val: HashUint, q: &Q) -> *mut HashNode<K> where K: Borrow<Q>, Q: Ord {
-        let index = self.get_hash_index(hash_val);
-        let mut avl_node = index.avl_root_node();
+        let mut avl_node = self.get_hash_index(hash_val).avl_root_node();
         while avl_node.not_null() {
             let snode = avl_node.avl_hash_deref_mut::<K>();
             let shash_val = snode.hash_val();
             if hash_val == shash_val {
                 match unsafe { q.cmp((*snode.key_ptr()).borrow()) } {
-                    Ordering::Greater => { avl_node = avl_node.right(); }
                     Ordering::Equal => { return snode; }
                     Ordering::Less => { avl_node = avl_node.left(); }
+                    Ordering::Greater => { avl_node = avl_node.right(); }
                 }
             } else {
                 avl_node = if hash_val < shash_val { avl_node.left() } else { avl_node.right() }
@@ -270,24 +272,33 @@ impl<K, V> HashTable<K, V> {
         let hash_val = new_node.hash_val();
         let index = self.get_hash_index(hash_val);
         let link = index.avl_root_node_ptr();
+        let new_avl_node = new_node.avl_node_ptr();
 
         // for runtime, this part doesn't need to be combined into avl insertion
+        // 77%
         if (*link).is_null() {
-            (*link) = new_node.avl_node_ptr();
-            (*link).reset(ptr::null_mut(), ptr::null_mut(), ptr::null_mut(), 1);
+            (*link) = new_avl_node;
+            ptr::write(new_avl_node, DEFAULT_AVL_NODE);
             self.head_ptr().list_add_tail(index.node_ptr());
             self.count += 1;
             return ptr::null_mut();
         }
         let (duplicate, parent, link) = find_duplicate_hash_node(link, new_node.key_ptr(), hash_val);
         if !duplicate.is_null() {
-            avl_node::avl_node_replace(duplicate.avl_node_ptr(), new_node.avl_node_ptr(), index.avl_root_ptr());
+            avl_node::avl_node_replace(duplicate.avl_node_ptr(), new_avl_node, index.avl_root_ptr());
             return duplicate;
         }
-        debug_assert_ne!(parent, new_node.avl_node_ptr());
-        avl_node::link_node(new_node.avl_node_ptr(), parent, link);
-        avl_node::node_post_insert(new_node.avl_node_ptr(), index.avl_root_ptr());
+        debug_assert_ne!(parent, new_avl_node);
         self.count += 1;
+        avl_node::link_node(new_avl_node, parent, link);
+        let avl_root_node = index.avl_root_node();
+        if (*avl_root_node).height == 1 {
+            // 19%
+            (*avl_root_node).height = 2;
+            (*new_avl_node).height = 1;
+        } else {
+            avl_node::node_post_insert(new_node.avl_node_ptr(), index.avl_root_ptr());
+        }
         ptr::null_mut()
     }
 
@@ -453,7 +464,7 @@ impl<K, V> HashTable<K, V> {
     pub fn hash_erase(&mut self, node: *mut HashNode<K>) {
         debug_assert!(!node.avl_node_ptr().empty());
         let index = self.get_hash_index(node.hash_val());
-        if index.avl_root_node() == node.avl_node_ptr() && node.avl_node_ptr().height() == 1 {
+        if index.avl_root_node().height() == 1 {
             index.set_avl_root_node(ptr::null_mut());
             index.node_ptr().list_del_init();
         } else {

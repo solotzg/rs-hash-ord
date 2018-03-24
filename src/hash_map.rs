@@ -555,6 +555,7 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
         !self.find(q).is_null()
     }
 
+    #[inline]
     pub fn insert(&mut self, key: K, value: V) -> Option<(K, V)> {
         let hash_value = self.make_hash(&key);
         let kv_ptr = self.kv_alloc(key, value);
@@ -571,6 +572,7 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher {
         }
     }
 
+    #[inline]
     pub fn remove<Q: ? Sized>(&mut self, q: &Q) -> Option<(K, V)> where K: Borrow<Q>, Q: Hash + Ord {
         let entry = self.find(q);
         if entry.is_null() {

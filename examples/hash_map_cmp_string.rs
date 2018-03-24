@@ -4,14 +4,24 @@ extern crate rand;
 
 use hash_ord::hash_map;
 use std::collections::HashMap as STLHashMap;
+use std::hash::BuildHasher;
+use std::collections::hash_map::DefaultHasher;
 
-pub fn default_make_avl_element(n: usize) -> Vec<i32> {
-    let mut v = vec![0i32; n];
+struct State {}
+
+impl BuildHasher for State {
+    type Hasher = DefaultHasher;
+    #[inline]
+    #[allow(deprecated)]
+    fn build_hasher(&self) -> DefaultHasher {
+        Default::default()
+    }
+}
+
+pub fn default_make_avl_element(n: usize) -> Vec<usize> {
+    let mut v = vec![0usize; n];
     for idx in 0..v.len() {
-        v[idx] = idx as i32;
-        let pos = rand::random::<usize>() % (idx + 1);
-        assert!(pos <= idx);
-        v.swap(idx, pos);
+        v[idx] = n - idx;
     }
     v
 }
@@ -29,13 +39,13 @@ fn run(max_num: usize) {
     println!("--------------------------------");
 }
 
-fn test_stl_hash_map(max_num: usize, v: &Vec<i32>) {
+fn test_stl_hash_map(max_num: usize, v: &Vec<usize>) {
     println!("\ntest stl hash map");
-    let mut map = STLHashMap::new();
+    let mut map = STLHashMap::with_hasher(State {});
     map.reserve(max_num);
     let start = time::now();
     for i in v {
-        map.insert(i.to_string(), -*i);
+        map.insert(i.to_string(), *i);
     }
     let duration = time::now() - start;
     println!("insert time {}", duration);
@@ -56,13 +66,13 @@ fn test_stl_hash_map(max_num: usize, v: &Vec<i32>) {
     println!("remove time {}", duration);
 }
 
-fn test_hash_avl_map(max_num: usize, v: &Vec<i32>) {
+fn test_hash_avl_map(max_num: usize, v: &Vec<usize>) {
     println!("\ntest hash avl map");
-    let mut map = hash_map::HashMap::new();
+    let mut map = hash_map::HashMap::with_hasher(State {});
     map.reserve(max_num);
     let start = time::now();
     for i in v {
-        map.insert(i.to_string(), -*i);
+        map.insert(i.to_string(), *i);
     }
     let duration = time::now() - start;
     println!("insert time {}", duration);
