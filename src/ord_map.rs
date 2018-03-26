@@ -1,16 +1,13 @@
 use std::cmp::Ordering;
-use std::marker;
-use std::mem;
+use std::{marker, mem, ptr};
 use std::ops::Index;
 use std::iter::FromIterator;
-use avl_node::{AVLNodePtr, AVLNode, AVLNodePtrBase, AVLRoot, AVLRootPtr};
+use avl_node::{AVLNode, AVLNodePtr, AVLNodePtrBase, AVLRoot, AVLRootPtr};
 use avl_node;
-use std::ptr;
-use fastbin::Fastbin;
-use fastbin::VoidPtr;
+use fastbin::{Fastbin, VoidPtr};
 use std::borrow::Borrow;
 
-pub struct AVLEntry<K, V> {
+struct AVLEntry<K, V> {
     node: AVLNode,
     key: K,
     value: V,
@@ -62,7 +59,9 @@ impl AVLTreeNodeOperation for *mut AVLNode {
 
     #[inline]
     fn set_value<K, V>(self, value: V) {
-        unsafe { (*self.avl_node_deref_to_entry::<K, V>()).value = value; }
+        unsafe {
+            (*self.avl_node_deref_to_entry::<K, V>()).value = value;
+        }
     }
 
     #[inline]
@@ -71,7 +70,17 @@ impl AVLTreeNodeOperation for *mut AVLNode {
     }
 }
 
-pub struct Cursors<'a, K, V> where K: Ord + 'a, V: 'a {
+/// An cursor of a `OrdMap`.
+///
+/// This struct is constructed from the [`find_cursors`] method on [`OrdMap`].
+///
+/// [`OrdMap`]: struct.OrdMap.html
+/// [`find_cursors`]: struct.OrdMap.html#method.find_cursors
+pub struct Cursors<'a, K, V>
+where
+    K: Ord + 'a,
+    V: 'a,
+{
     tree_mut: &'a mut OrdMap<K, V>,
     pos: AVLNodePtr,
 }
@@ -81,15 +90,34 @@ enum CursorsOperation {
     PREV,
 }
 
-impl<'a, K, V> Cursors<'a, K, V> where K: Ord {
+impl<'a, K, V> Cursors<'a, K, V>
+where
+    K: Ord,
+{
+    /// Move cursor to next pos.
     pub fn next(&mut self) {
         self.pos = self.pos.next();
     }
 
+    /// Move cursor to next pos.
     pub fn prev(&mut self) {
         self.pos = self.pos.prev();
     }
 
+    /// Returns the (&Key, &Value) pair of current pos.
+    ///
+    /// # Examples
+    /// ```
+    /// use hash_ord::ord_map::OrdMap;
+    /// use hash_ord::ord_map::Cursors;
+    ///
+    /// let mut map = OrdMap::new();
+    /// map.insert(1, 1);
+    /// map.insert(2, 2);
+    /// map.insert(3, 3);
+    /// let mut cursors = map.find_cursors(&2);
+    /// assert_eq!(*cursors.get().unwrap().0, 2);
+    /// ```
     pub fn get(&self) -> Option<(&K, &V)> {
         if self.pos.not_null() {
             Some((self.pos.key_ref::<K, V>(), self.pos.value_ref::<K, V>()))
@@ -98,6 +126,21 @@ impl<'a, K, V> Cursors<'a, K, V> where K: Ord {
         }
     }
 
+    /// Returns the (&Key, &mut Value) pair of current pos.
+    ///
+    /// # Examples
+    /// ```
+    /// use hash_ord::ord_map::OrdMap;
+    /// use hash_ord::ord_map::Cursors;
+    ///
+    /// let mut map = OrdMap::new();
+    /// map.insert(1, 1);
+    /// map.insert(2, 2);
+    /// map.insert(3, 3);
+    /// let mut cursors = map.find_cursors(&2);
+    /// *cursors.get_mut().unwrap().1 = -2;
+    /// assert_eq!(*cursors.get().unwrap().1, -2);
+    /// ```
     pub fn get_mut(&mut self) -> Option<(&K, &mut V)> {
         if self.pos.not_null() {
             Some((self.pos.key_ref::<K, V>(), self.pos.value_mut::<K, V>()))
@@ -106,54 +149,245 @@ impl<'a, K, V> Cursors<'a, K, V> where K: Ord {
         }
     }
 
-    fn erase<F>(&mut self, f: F, op: CursorsOperation) where F: Fn(Option<(K, V)>) {
+    fn erase<F>(&mut self, f: F, op: CursorsOperation)
+    where
+        F: Fn(Option<(K, V)>),
+    {
         if self.pos.is_null() {
             f(None);
             return;
         }
         let node = self.pos;
         match op {
-            CursorsOperation::NEXT => { self.next() }
-            CursorsOperation::PREV => { self.prev() }
+            CursorsOperation::NEXT => self.next(),
+            CursorsOperation::PREV => self.prev(),
         }
         unsafe {
             f(self.tree_mut.remove_node(node));
         }
     }
 
-    pub fn erase_then_next<F>(&mut self, f: F) where F: Fn(Option<(K, V)>) {
+    /// Erase current pos, and move to next.
+    ///
+    /// # Examples
+    /// ```
+    /// use hash_ord::ord_map::OrdMap;
+    /// use hash_ord::ord_map::Cursors;
+    ///
+    /// let mut map = OrdMap::new();
+    /// map.insert(1, 1);
+    /// map.insert(2, 2);
+    /// map.insert(3, 3);
+    /// let mut cursors = map.find_cursors(&2);
+    /// cursors.erase_then_next(|x| {
+    ///     assert_eq!(x.unwrap().0, 2);
+    /// });
+    /// assert_eq!(*cursors.get().unwrap().0, 3);
+    /// ```
+    pub fn erase_then_next<F>(&mut self, f: F)
+    where
+        F: Fn(Option<(K, V)>),
+    {
         self.erase(f, CursorsOperation::NEXT);
     }
 
-    pub fn erase_then_prev<F>(&mut self, f: F) where F: Fn(Option<(K, V)>) {
+    /// Erase current pos, and move to prev.
+    ///
+    /// # Examples
+    /// ```
+    /// use hash_ord::ord_map::OrdMap;
+    /// use hash_ord::ord_map::Cursors;
+    ///
+    /// let mut map = OrdMap::new();
+    /// map.insert(1, 1);
+    /// map.insert(2, 2);
+    /// map.insert(3, 3);
+    /// let mut cursors = map.find_cursors(&2);
+    /// cursors.erase_then_prev(|x| {
+    ///     assert_eq!(x.unwrap().0, 2);
+    /// });
+    /// assert_eq!(*cursors.get().unwrap().0, 1);
+    /// ```
+    pub fn erase_then_prev<F>(&mut self, f: F)
+    where
+        F: Fn(Option<(K, V)>),
+    {
         self.erase(f, CursorsOperation::PREV);
     }
 }
 
-pub struct OrdMap<K, V> where K: Ord {
+/// Optimized AVL.
+///
+/// To improve performance, raw pointer is used frequently. Because Rust uses a similar memory model
+/// to C/C++, two classic macros `offset_of` and `container_of` are used to dereference member
+/// variables into main struct. `Fastbin` is implemented to reduce the cost of memory allocation.
+///
+///
+/// # Examples
+///
+/// ```
+/// use hash_ord::ord_map::OrdMap;
+///
+/// // type inference lets us omit an explicit type signature (which
+/// // would be `OrdMap<&str, &str>` in this example).
+/// let mut book_reviews = OrdMap::new();
+///
+/// // review some books.
+/// book_reviews.insert("Adventures of Huckleberry Finn",    "My favorite book.");
+/// book_reviews.insert("Grimms' Fairy Tales",               "Masterpiece.");
+/// book_reviews.insert("Pride and Prejudice",               "Very enjoyable.");
+/// book_reviews.insert("The Adventures of Sherlock Holmes", "Eye lyked it alot.");
+///
+/// // check for a specific one.
+/// if !book_reviews.contains_key("Les Misérables") {
+///     println!("We've got {} reviews, but Les Misérables ain't one.",
+///              book_reviews.len());
+/// }
+///
+/// // oops, this review has a lot of spelling mistakes, let's delete it.
+/// book_reviews.remove("The Adventures of Sherlock Holmes");
+///
+/// // look up the values associated with some keys.
+/// let to_find = ["Pride and Prejudice", "Alice's Adventure in Wonderland"];
+/// for book in &to_find {
+///     match book_reviews.get(book) {
+///         Some(review) => println!("{}: {}", book, review),
+///         None => println!("{} is unreviewed.", book)
+///     }
+/// }
+///
+/// // iterate over everything.
+/// for (book, review) in &book_reviews {
+///     println!("{}: \"{}\"", book, review);
+/// }
+/// ```
+///
+/// The easiest way to use `OrdMap` with a custom type as key is to derive `Ord``.
+///
+/// ```
+/// use hash_ord::ord_map::OrdMap;
+/// use std::cmp::Ordering;
+///
+/// #[derive(Eq, Debug)]
+/// struct Viking {
+///    name: String,
+///    country: String,
+/// }
+///
+/// impl Ord for Viking {
+///     fn cmp(&self, other: &Self) -> Ordering {
+///         let tmp = self.name.cmp(&other.name);
+///         return if tmp != Ordering::Equal { tmp } else {
+///             self.country.cmp(&other.country)
+///         };
+///     }
+/// }
+///
+/// impl PartialOrd for Viking {
+///     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+///         Some(self.cmp(other))
+///     }
+/// }
+///
+/// impl PartialEq for Viking {
+///     fn eq(&self, other: &Self) -> bool {
+///         self.name == other.name && self.country == other.country
+///     }
+/// }
+///
+/// impl Viking {
+///     /// / Create a new Viking.
+///     fn new(name: &str, country: &str) -> Viking {
+///         Viking { name: name.to_string(), country: country.to_string() }
+///     }
+/// }
+///
+/// //  Use a OrdMap to store the vikings' health points.
+/// let mut vikings = OrdMap::new();
+///
+/// vikings.insert(Viking::new("Einar", "Norway"), 25);
+/// vikings.insert(Viking::new("Olaf", "Denmark"), 24);
+/// vikings.insert(Viking::new("Harald", "Iceland"), 12);
+///
+/// // Use derived implementation to print the status of the vikings.
+/// for (viking, health) in &vikings {
+///     println!("{:?} has {} hp", viking, health);
+/// }
+/// ```
+///
+/// A `OrdMap` with fixed list of elements can be initialized from an array:
+///
+/// ```
+/// use hash_ord::ord_map::OrdMap;
+///
+/// let timber_resources: OrdMap<&str, i32> =
+///     [("Norway", 100),
+///      ("Denmark", 50),
+///      ("Iceland", 10)]
+///      .iter().cloned().collect();
+///
+pub struct OrdMap<K, V>
+where
+    K: Ord,
+{
     root: AVLRoot,
     count: usize,
     entry_fastbin: Fastbin,
     _marker: marker::PhantomData<(K, V)>,
 }
 
-impl<K, V> OrdMap<K, V> where K: Ord {
+impl<K, V> OrdMap<K, V>
+where
+    K: Ord,
+{
+    /// Returns the cursors of a found pos.
     #[inline]
-    pub fn find_cursors<Q>(&mut self, q: &Q) -> Cursors<K, V> where K: Borrow<Q>, Q: Ord {
+    pub fn find_cursors<Q>(&mut self, q: &Q) -> Cursors<K, V>
+    where
+        K: Borrow<Q>,
+        Q: Ord,
+    {
         let node = self.find_node(q);
-        Cursors { tree_mut: self, pos: node }
+        Cursors {
+            tree_mut: self,
+            pos: node,
+        }
     }
 
+    /// Returns the max height of the tree.
     #[inline]
     pub fn max_height(&self) -> i32 {
         self.root.node.height()
     }
 
+    /// Returns true if the map contains no element.
+    ///
+    /// # Examples
+    /// ```
+    /// use hash_ord::ord_map::OrdMap;
+    ///
+    /// let mut map = OrdMap::new();
+    /// assert!(map.is_empty());
+    /// map.insert(1, 1);
+    /// assert!(!map.is_empty());
+    /// ```
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.count == 0
     }
 
+    /// Returns the number of elements in the map.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hash_ord::ord_map::OrdMap;
+    ///
+    /// let mut a = OrdMap::new();
+    /// assert_eq!(a.len(), 0);
+    /// a.insert(1, "a");
+    /// assert_eq!(a.len(), 1);
+    /// ```
     #[inline]
     pub fn len(&self) -> usize {
         self.count
@@ -169,6 +403,17 @@ impl<K, V> OrdMap<K, V> where K: Ord {
         self.root.node.last_node()
     }
 
+    /// Creates an empty `OrdMap`.
+    ///
+    /// The hash map is initially created with a capacity of 0, so it will not allocate until it
+    /// is first inserted into.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hash_ord::ord_map::OrdMap;
+    /// let mut map: OrdMap<&str, isize> = OrdMap::new();
+    /// ```
     #[inline]
     pub fn new() -> Self {
         OrdMap {
@@ -190,7 +435,11 @@ impl<K, V> OrdMap<K, V> where K: Ord {
         entry
     }
 
-    fn deep_clone_node(&mut self, parent: AVLNodePtr, other_node: AVLNodePtr) -> AVLNodePtr where K: Clone, V: Clone {
+    fn deep_clone_node(&mut self, parent: AVLNodePtr, other_node: AVLNodePtr) -> AVLNodePtr
+    where
+        K: Clone,
+        V: Clone,
+    {
         if other_node.is_null() {
             return ptr::null_mut();
         }
@@ -208,7 +457,11 @@ impl<K, V> OrdMap<K, V> where K: Ord {
         node
     }
 
-    pub fn clone_from(t: &OrdMap<K, V>) -> Self where K: Clone, V: Clone {
+    fn clone_from(t: &OrdMap<K, V>) -> Self
+    where
+        K: Clone,
+        V: Clone,
+    {
         let mut tree = OrdMap {
             root: Default::default(),
             count: 0,
@@ -246,7 +499,11 @@ impl<K, V> OrdMap<K, V> where K: Ord {
     }
 
     #[inline]
-    pub fn find_node<Q: ? Sized>(&self, q: &Q) -> AVLNodePtr where K: Borrow<Q>, Q: Ord {
+    fn find_node<Q: ?Sized>(&self, q: &Q) -> AVLNodePtr
+    where
+        K: Borrow<Q>,
+        Q: Ord,
+    {
         let mut node = self.root.node;
         while node.not_null() {
             match q.cmp(node.key_ref::<K, V>().borrow()) {
@@ -264,15 +521,16 @@ impl<K, V> OrdMap<K, V> where K: Ord {
         ptr::null_mut()
     }
 
-
+    /// Return true if two tree are isomorphic.
     #[inline]
-    fn isomorphic(&self, t: &OrdMap<K, V>) -> bool {
-        if self.len() != t.len() {
+    pub fn isomorphic(&self, other: &OrdMap<K, V>) -> bool {
+        if self.len() != other.len() {
             return false;
         }
-        self.root.node.isomorphic(t.root.node)
+        self.root.node.isomorphic(other.root.node)
     }
 
+    /// Return true if tree is valid.
     pub fn check_valid(&self) -> bool {
         self.root.node.check_valid()
     }
@@ -287,7 +545,9 @@ impl<K, V> OrdMap<K, V> where K: Ord {
         let mut cnt = 1usize;
         loop {
             match iter.next() {
-                None => { break; }
+                None => {
+                    break;
+                }
                 Some(x) => {
                     cnt += 1;
                     if *prev.unwrap().0 >= *x.0 {
@@ -310,7 +570,9 @@ impl<K, V> OrdMap<K, V> where K: Ord {
         let mut cnt = 1usize;
         loop {
             match iter.next_back() {
-                None => { break; }
+                None => {
+                    break;
+                }
                 Some(x) => {
                     cnt += 1;
                     if *prev.unwrap().0 <= *x.0 {
@@ -337,19 +599,77 @@ impl<K, V> OrdMap<K, V> where K: Ord {
         res
     }
 
+    /// Removes a key from the map, returning the stored key and value if the
+    /// key was previously in the map.
+    ///
+    /// The key may be any borrowed form of the map's key type, but `Ord` on the borrowed
+    /// form *must* match those for the key type.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hash_ord::ord_map::OrdMap;
+    ///
+    /// let mut map = OrdMap::new();
+    /// map.insert(1, "a");
+    /// assert_eq!(map.remove(&1), Some((1, "a")));
+    /// assert_eq!(map.remove(&1), None);
+    /// ```
     #[inline]
-    pub fn remove<Q: ? Sized>(&mut self, q: &Q) -> Option<(K, V)> where K: Borrow<Q>, Q: Ord {
+    pub fn remove<Q: ?Sized>(&mut self, q: &Q) -> Option<(K, V)>
+    where
+        K: Borrow<Q>,
+        Q: Ord,
+    {
         let node = self.find_node(q);
         unsafe { self.remove_node(node) }
     }
 
+    /// Returns true if the map contains a value for the specified key.
+    ///
+    /// The key may be any borrowed form of the map's key type, but `Ord` on the borrowed
+    /// form *must* match those for the key type.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hash_ord::ord_map::OrdMap;
+    ///
+    /// let mut map = OrdMap::new();
+    /// map.insert(1, "a");
+    /// assert_eq!(map.contains_key(&1), true);
+    /// assert_eq!(map.contains_key(&2), false);
+    /// ```
     #[inline]
-    pub fn contains_key<Q: ? Sized>(&self, q: &Q) -> bool where K: Borrow<Q>, Q: Ord {
+    pub fn contains_key<Q: ?Sized>(&self, q: &Q) -> bool
+    where
+        K: Borrow<Q>,
+        Q: Ord,
+    {
         self.find_node(q).not_null()
     }
 
+    /// Returns a reference to the value corresponding to the key.
+    ///
+    /// The key may be any borrowed form of the map's key type, but `Ord` on the borrowed
+    /// form *must* match those for the key type.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hash_ord::ord_map::OrdMap;
+    ///
+    /// let mut map = OrdMap::new();
+    /// map.insert(1, "a");
+    /// assert_eq!(map.get(&1), Some(&"a"));
+    /// assert_eq!(map.get(&2), None);
+    /// ```
     #[inline]
-    pub fn get<Q: ? Sized>(&self, q: &Q) -> Option<&V> where K: Borrow<Q>, Q: Ord {
+    pub fn get<Q: ?Sized>(&self, q: &Q) -> Option<&V>
+    where
+        K: Borrow<Q>,
+        Q: Ord,
+    {
         let node = self.find_node(q);
         if node.is_null() {
             None
@@ -358,7 +678,28 @@ impl<K, V> OrdMap<K, V> where K: Ord {
         }
     }
 
-    pub fn get_mut<Q: ? Sized>(&mut self, q: &Q) -> Option<&mut V> where K: Borrow<Q>, Q: Ord {
+    /// Returns a mutable reference to the value corresponding to the key.
+    ///
+    /// The key may be any borrowed form of the map's key type, but
+    /// `Ord` on the borrowed form *must* match those for the key type.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hash_ord::ord_map::OrdMap;
+    ///
+    /// let mut map = OrdMap::new();
+    /// map.insert(1, "a");
+    /// if let Some(x) = map.get_mut(&1) {
+    ///     *x = "b";
+    /// }
+    /// assert_eq!(map[&1], "b");
+    /// ```
+    pub fn get_mut<Q: ?Sized>(&mut self, q: &Q) -> Option<&mut V>
+    where
+        K: Borrow<Q>,
+        Q: Ord,
+    {
         let node = self.find_node(q);
         if node.is_null() {
             None
@@ -376,11 +717,26 @@ impl<K, V> OrdMap<K, V> where K: Ord {
         }
         let entry = node.avl_node_deref_to_entry::<K, V>();
         if mem::needs_drop::<AVLEntry<K, V>>() {
-            unsafe { ptr::drop_in_place(entry); }
+            unsafe {
+                ptr::drop_in_place(entry);
+            }
         }
         self.entry_fastbin.del(entry as VoidPtr);
     }
 
+    /// Clears the map, removing all key-value pairs. Keeps the allocated memory
+    /// for reuse.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hash_ord::ord_map::OrdMap;
+    ///
+    /// let mut a = OrdMap::new();
+    /// a.insert(1, "a");
+    /// a.clear();
+    /// assert!(a.is_empty());
+    /// ```
     #[inline]
     pub fn clear(&mut self) {
         let node = self.root.node;
@@ -397,9 +753,18 @@ impl<K, V> OrdMap<K, V> where K: Ord {
     }
 
     #[inline]
-    pub fn link_post_insert(&mut self, new_node: AVLNodePtr, parent: AVLNodePtr, cmp_node_ref: *mut AVLNodePtr) {
-        unsafe { avl_node::link_node(new_node, parent, cmp_node_ref); }
-        unsafe { avl_node::node_post_insert(new_node, self.get_root_ptr()); }
+    fn link_post_insert(
+        &mut self,
+        new_node: AVLNodePtr,
+        parent: AVLNodePtr,
+        cmp_node_ref: *mut AVLNodePtr,
+    ) {
+        unsafe {
+            avl_node::link_node(new_node, parent, cmp_node_ref);
+        }
+        unsafe {
+            avl_node::node_post_insert(new_node, self.get_root_ptr());
+        }
         self.count += 1;
     }
 
@@ -408,6 +773,26 @@ impl<K, V> OrdMap<K, V> where K: Ord {
         &mut self.root as AVLRootPtr
     }
 
+    /// Inserts a key-value pair into the map.
+    ///
+    /// If the map did not have this key present, [`None`] is returned.
+    ///
+    /// If the map did have this key present, update map with new (key, value) and
+    /// return the old one.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hash_ord::ord_map::OrdMap;
+    ///
+    /// let mut map = OrdMap::new();
+    /// assert_eq!(map.insert(37, "a"), None);
+    /// assert_eq!(map.is_empty(), false);
+    ///
+    /// map.insert(37, "b");
+    /// assert_eq!(map.insert(37, "c"), Some((37, "b")));
+    /// assert_eq!(map[&37], "c");
+    /// ```
     #[inline]
     pub fn insert(&mut self, key: K, value: V) -> Option<(K, V)> {
         let (duplicate, parent, cmp_node_ref) = self.find_duplicate(&key);
@@ -426,21 +811,103 @@ impl<K, V> OrdMap<K, V> where K: Ord {
         }
     }
 
+    /// An iterator visiting all keys in incremental order.
+    /// The iterator element type is `&'a K`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hash_ord::ord_map::OrdMap;
+    ///
+    /// let mut map = OrdMap::new();
+    /// map.insert("a", 1);
+    /// map.insert("b", 2);
+    /// map.insert("c", 3);
+    ///
+    /// for key in map.keys() {
+    ///     println!("{}", key);
+    /// }
+    /// ```
     #[inline]
     pub fn keys(&self) -> Keys<K, V> {
-        Keys { inner: self.iter(), _marker: marker::PhantomData }
+        Keys {
+            inner: self.iter(),
+            _marker: marker::PhantomData,
+        }
     }
 
+    /// An iterator visiting all values in incremental order.
+    /// The iterator element type is `&'a V`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hash_ord::ord_map::OrdMap;
+    ///
+    /// let mut map = OrdMap::new();
+    /// map.insert("a", 1);
+    /// map.insert("b", 2);
+    /// map.insert("c", 3);
+    ///
+    /// for val in map.values() {
+    ///     println!("{}", val);
+    /// }
+    /// ```
     #[inline]
     pub fn values(&self) -> Values<K, V> {
-        Values { inner: self.iter(), _marker: marker::PhantomData }
+        Values {
+            inner: self.iter(),
+            _marker: marker::PhantomData,
+        }
     }
 
+    /// An iterator visiting all values mutably in incremental order.
+    /// The iterator element type is `&'a mut V`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hash_ord::ord_map::OrdMap;
+    ///
+    /// let mut map = OrdMap::new();
+    ///
+    /// map.insert("a", 1);
+    /// map.insert("b", 2);
+    /// map.insert("c", 3);
+    ///
+    /// for val in map.values_mut() {
+    ///     *val = *val + 10;
+    /// }
+    ///
+    /// for val in map.values() {
+    ///     println!("{}", val);
+    /// }
+    /// ```
     #[inline]
     pub fn values_mut(&mut self) -> ValuesMut<K, V> {
-        ValuesMut { inner: self.iter_mut(), _marker: marker::PhantomData }
+        ValuesMut {
+            inner: self.iter_mut(),
+            _marker: marker::PhantomData,
+        }
     }
 
+    /// An iterator visiting all key-value pairs in incremental order.
+    /// The iterator element type is `(&'a K, &'a V)`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hash_ord::ord_map::OrdMap;
+    ///
+    /// let mut map = OrdMap::new();
+    /// map.insert("a", 1);
+    /// map.insert("b", 2);
+    /// map.insert("c", 3);
+    ///
+    /// for (key, val) in map.iter() {
+    ///     println!("key: {} val: {}", key, val);
+    /// }
+    /// ```
     #[inline]
     pub fn iter(&self) -> Iter<K, V> {
         Iter {
@@ -451,6 +918,29 @@ impl<K, V> OrdMap<K, V> where K: Ord {
         }
     }
 
+    /// An iterator visiting all key-value pairs in incremental order,
+    /// with mutable references to the values.
+    /// The iterator element type is `(&'a K, &'a mut V)`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hash_ord::ord_map::OrdMap;
+    ///
+    /// let mut map = OrdMap::new();
+    /// map.insert("a", 1);
+    /// map.insert("b", 2);
+    /// map.insert("c", 3);
+    ///
+    /// // Update all values
+    /// for (_, val) in map.iter_mut() {
+    ///     *val *= 2;
+    /// }
+    ///
+    /// for (key, val) in &map {
+    ///     println!("key: {} val: {}", key, val);
+    /// }
+    /// ```
     #[inline]
     pub fn iter_mut(&mut self) -> IterMut<K, V> {
         IterMut {
@@ -462,51 +952,80 @@ impl<K, V> OrdMap<K, V> where K: Ord {
     }
 }
 
-impl<K, V> Drop for OrdMap<K, V> where K: Ord {
+impl<K, V> Drop for OrdMap<K, V>
+where
+    K: Ord,
+{
     fn drop(&mut self) {
         self.destroy();
     }
 }
 
-impl<K, V> Clone for OrdMap<K, V> where K: Ord + Clone, V: Clone {
+impl<K, V> Clone for OrdMap<K, V>
+where
+    K: Ord + Clone,
+    V: Clone,
+{
     fn clone(&self) -> Self {
         OrdMap::clone_from(self)
     }
 }
 
-impl<K, V> PartialEq for OrdMap<K, V> where K: Eq + Ord, V: PartialEq, {
+impl<K, V> PartialEq for OrdMap<K, V>
+where
+    K: Eq + Ord,
+    V: PartialEq,
+{
     fn eq(&self, other: &OrdMap<K, V>) -> bool {
         if self.len() != other.len() {
             return false;
         }
 
-        self.iter().all(|(key, value)| {
-            other.get(key).map_or(false, |v| *value == *v)
-        })
+        self.iter()
+            .all(|(key, value)| other.get(key).map_or(false, |v| *value == *v))
     }
 }
 
-impl<K, V> Eq for OrdMap<K, V> where K: Eq + Ord, V: Eq {}
+impl<K, V> Eq for OrdMap<K, V>
+where
+    K: Eq + Ord,
+    V: Eq,
+{
+}
 
-impl<'a, K, V> Index<&'a K> for OrdMap<K, V> where K: Ord {
+impl<'a, K, V> Index<&'a K> for OrdMap<K, V>
+where
+    K: Ord,
+{
     type Output = V;
 
+    /// Returns a reference to the value corresponding to the supplied key.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the key is not present in the `OrdMap`.
     #[inline]
     fn index(&self, key: &K) -> &V {
         self.get(key).expect("no entry found for key")
     }
 }
 
-impl<K, V> FromIterator<(K, V)> for OrdMap<K, V> where K: Ord {
-    fn from_iter<T: IntoIterator<Item=(K, V)>>(iter: T) -> OrdMap<K, V> {
+impl<K, V> FromIterator<(K, V)> for OrdMap<K, V>
+where
+    K: Ord,
+{
+    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> OrdMap<K, V> {
         let mut tree = OrdMap::new();
         tree.extend(iter);
         tree
     }
 }
 
-impl<K, V> Extend<(K, V)> for OrdMap<K, V> where K: Ord {
-    fn extend<T: IntoIterator<Item=(K, V)>>(&mut self, iter: T) {
+impl<K, V> Extend<(K, V)> for OrdMap<K, V>
+where
+    K: Ord,
+{
+    fn extend<T: IntoIterator<Item = (K, V)>>(&mut self, iter: T) {
         let iter = iter.into_iter();
         for (k, v) in iter {
             self.insert(k, v);
@@ -514,6 +1033,13 @@ impl<K, V> Extend<(K, V)> for OrdMap<K, V> where K: Ord {
     }
 }
 
+/// An iterator over the keys of a `OrdMap`.
+///
+/// This `struct` is created by the [`keys`] method on [`OrdMap`]. See its
+/// documentation for more.
+///
+/// [`keys`]: struct.OrdMap.html#method.keys
+/// [`OrdMap`]: struct.OrdMap.html
 pub struct Keys<'a, K: Ord + 'a, V: 'a> {
     inner: Iter<'a, K, V>,
     _marker: marker::PhantomData<&'a (K, V)>,
@@ -521,7 +1047,10 @@ pub struct Keys<'a, K: Ord + 'a, V: 'a> {
 
 impl<'a, K: Ord, V> Clone for Keys<'a, K, V> {
     fn clone(&self) -> Keys<'a, K, V> {
-        Keys { inner: self.inner.clone(), _marker: marker::PhantomData }
+        Keys {
+            inner: self.inner.clone(),
+            _marker: marker::PhantomData,
+        }
     }
 }
 
@@ -539,6 +1068,13 @@ impl<'a, K: Ord, V> Iterator for Keys<'a, K, V> {
     }
 }
 
+/// An iterator over the values of a `OrdMap`.
+///
+/// This `struct` is created by the [`values`] method on [`OrdMap`]. See its
+/// documentation for more.
+///
+/// [`values`]: struct.OrdMap.html#method.values
+/// [`OrdMap`]: struct.OrdMap.html
 pub struct Values<'a, K: 'a + Ord, V: 'a> {
     inner: Iter<'a, K, V>,
     _marker: marker::PhantomData<&'a (K, V)>,
@@ -546,7 +1082,10 @@ pub struct Values<'a, K: 'a + Ord, V: 'a> {
 
 impl<'a, K: Ord, V> Clone for Values<'a, K, V> {
     fn clone(&self) -> Values<'a, K, V> {
-        Values { inner: self.inner.clone(), _marker: marker::PhantomData }
+        Values {
+            inner: self.inner.clone(),
+            _marker: marker::PhantomData,
+        }
     }
 }
 
@@ -564,6 +1103,13 @@ impl<'a, K: Ord, V> Iterator for Values<'a, K, V> {
     }
 }
 
+/// A mutable iterator over the values of a `OrdMap`.
+///
+/// This `struct` is created by the [`values_mut`] method on [`OrdMap`]. See its
+/// documentation for more.
+///
+/// [`values_mut`]: struct.OrdMap.html#method.values_mut
+/// [`OrdMap`]: struct.OrdMap.html
 pub struct ValuesMut<'a, K: 'a + Ord, V: 'a> {
     inner: IterMut<'a, K, V>,
     _marker: marker::PhantomData<(K, V)>,
@@ -571,7 +1117,10 @@ pub struct ValuesMut<'a, K: 'a + Ord, V: 'a> {
 
 impl<'a, K: Ord, V> Clone for ValuesMut<'a, K, V> {
     fn clone(&self) -> ValuesMut<'a, K, V> {
-        ValuesMut { inner: self.inner.clone(), _marker: marker::PhantomData }
+        ValuesMut {
+            inner: self.inner.clone(),
+            _marker: marker::PhantomData,
+        }
     }
 }
 
@@ -589,7 +1138,17 @@ impl<'a, K: Ord, V> Iterator for ValuesMut<'a, K, V> {
     }
 }
 
-pub struct IntoIter<K, V> where K: Ord {
+/// An owning iterator over the entries of a `OrdMap`.
+///
+/// This `struct` is created by the [`into_iter`] method on [`OrdMap`][`OrdMap`]
+/// (provided by the `IntoIterator` trait). See its documentation for more.
+///
+/// [`into_iter`]: struct.OrdMap.html#method.into_iter
+/// [`OrdMap`]: struct.OrdMap.html
+pub struct IntoIter<K, V>
+where
+    K: Ord,
+{
     head: AVLNodePtr,
     tail: AVLNodePtr,
     len: usize,
@@ -597,7 +1156,10 @@ pub struct IntoIter<K, V> where K: Ord {
     _marker: marker::PhantomData<(K, V)>,
 }
 
-impl<K, V> IntoIter<K, V> where K: Ord {
+impl<K, V> IntoIter<K, V>
+where
+    K: Ord,
+{
     fn remove(&mut self, node: AVLNodePtr) -> Option<(K, V)> {
         let parent = node.parent();
         if parent.not_null() {
@@ -632,7 +1194,10 @@ impl<K: Ord, V> DoubleEndedIterator for IntoIter<K, V> {
     }
 }
 
-impl<K, V> Iterator for IntoIter<K, V> where K: Ord {
+impl<K, V> Iterator for IntoIter<K, V>
+where
+    K: Ord,
+{
     type Item = (K, V);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -649,7 +1214,10 @@ impl<K, V> Iterator for IntoIter<K, V> where K: Ord {
     }
 }
 
-impl<K, V> IntoIterator for OrdMap<K, V> where K: Ord {
+impl<K, V> IntoIterator for OrdMap<K, V>
+where
+    K: Ord,
+{
     type Item = (K, V);
     type IntoIter = IntoIter<K, V>;
 
@@ -676,6 +1244,7 @@ impl<K, V> IntoIterator for OrdMap<K, V> where K: Ord {
     }
 }
 
+/// An iterator over the (key, value) of a `OrdMap`.
 pub struct Iter<'a, K: Ord + 'a, V: 'a> {
     head: AVLNodePtr,
     tail: AVLNodePtr,
@@ -691,6 +1260,18 @@ impl<'a, K: Ord + 'a, V: 'a> Clone for Iter<'a, K, V> {
             len: self.len,
             _marker: self._marker,
         }
+    }
+}
+
+impl<'a, K, V> IntoIterator for &'a OrdMap<K, V>
+where
+    K: Ord,
+{
+    type Item = (&'a K, &'a V);
+    type IntoIter = Iter<'a, K, V>;
+
+    fn into_iter(self) -> Iter<'a, K, V> {
+        self.iter()
     }
 }
 
@@ -731,6 +1312,7 @@ impl<'a, K: Ord + 'a, V: 'a> DoubleEndedIterator for Iter<'a, K, V> {
     }
 }
 
+/// An iterator over the (key, mut value) of a `OrdMap`.
 pub struct IterMut<'a, K: Ord + 'a, V: 'a> {
     head: AVLNodePtr,
     tail: AVLNodePtr,
@@ -908,10 +1490,16 @@ pub mod test {
         let mut t = OrdMap::<MyData, Option<i32>>::new();
         {
             t.insert(MyData { a: 1 }, None);
-            assert_eq!(*t.root.node.key_ref::<MyData, Option<i32>>(), MyData { a: 1 });
+            assert_eq!(
+                *t.root.node.key_ref::<MyData, Option<i32>>(),
+                MyData { a: 1 }
+            );
             assert_eq!(t.root.node.height(), 1);
             t.insert(MyData { a: 2 }, None);
-            assert_eq!(*t.root.node.key_ref::<MyData, Option<i32>>(), MyData { a: 1 });
+            assert_eq!(
+                *t.root.node.key_ref::<MyData, Option<i32>>(),
+                MyData { a: 1 }
+            );
             assert_eq!(t.root.node.height(), 2);
 
             *t.get_mut(&MyData { a: 1 }).unwrap() = Some(23333);
@@ -1076,21 +1664,17 @@ pub mod test {
                 cursors.prev();
             }
             assert_eq!(*cursors.get().unwrap().0, 55);
-            cursors.erase_then_next(
-                |x| {
-                    assert!(x.is_some());
-                    assert_eq!(x.unwrap().0, 55);
-                }
-            );
+            cursors.erase_then_next(|x| {
+                assert!(x.is_some());
+                assert_eq!(x.unwrap().0, 55);
+            });
             assert_eq!(*cursors.get().unwrap().0, 56);
             cursors.prev();
             assert_eq!(*cursors.get().unwrap().0, 54);
-            cursors.erase_then_prev(
-                |x| {
-                    assert!(x.is_some());
-                    assert_eq!(x.unwrap().0, 54);
-                }
-            );
+            cursors.erase_then_prev(|x| {
+                assert!(x.is_some());
+                assert_eq!(x.unwrap().0, 54);
+            });
             assert_eq!(*cursors.get().unwrap().0, 53);
             cursors.next();
             assert_eq!(*cursors.get().unwrap().0, 56);
@@ -1144,4 +1728,3 @@ pub mod test {
         }
     }
 }
-

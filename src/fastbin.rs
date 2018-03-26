@@ -1,14 +1,14 @@
-use std::heap::Alloc;
-use std::heap::Heap;
-use std::heap::Layout;
-use std::mem;
-use std::cmp;
+use std::heap::{Alloc, Heap, Layout};
+use std::{cmp, mem};
 
 pub type VoidPtr = *mut u8;
 
 pub const VOID_PTR_NULL: VoidPtr = 0 as VoidPtr;
-// default maximum page size is 64k
+
+/// Default maximum page size is 64k
 const MAXIMUM_PAGE_SIZE: usize = 1usize << 16;
+
+/// Default object num in one page
 const PAGE_OBJ_CNT: usize = 1usize << 5;
 
 pub struct Fastbin {
@@ -100,7 +100,9 @@ fn get_page_size(ptr: VoidPtr) -> usize {
 
 #[inline]
 fn set_page_size(ptr: VoidPtr, size: usize) {
-    unsafe { *(ptr.offset(mem::size_of::<VoidPtr>() as isize) as *mut usize) = size; }
+    unsafe {
+        *(ptr.offset(mem::size_of::<VoidPtr>() as isize) as *mut usize) = size;
+    }
 }
 
 trait FastbinPtrBase {
@@ -139,8 +141,8 @@ impl FastbinPtrOperation for *mut Fastbin {
         self.set_next(VOID_PTR_NULL);
         self.set_pages(VOID_PTR_NULL);
         self.set_obj_size(round_up_to_next(obj_size, align));
-        let need = self.obj_size() * page_obj_cnt + mem::size_of::<VoidPtr>() +
-            mem::size_of::<VoidPtr>() + mem::size_of::<usize>() + 16;
+        let need = self.obj_size() * page_obj_cnt + mem::size_of::<VoidPtr>()
+            + mem::size_of::<VoidPtr>() + mem::size_of::<usize>() + 16;
         self.set_page_size(1usize << 5);
         while self.page_size() < need {
             self.set_page_size(self.page_size() * 2);
@@ -157,7 +159,10 @@ impl FastbinPtrOperation for *mut Fastbin {
             let page_size = get_page_size(page);
             self.set_pages(next);
             unsafe {
-                Heap.dealloc(page, Layout::from_size_align_unchecked(page_size, self.align()));
+                Heap.dealloc(
+                    page,
+                    Layout::from_size_align_unchecked(page_size, self.align()),
+                );
             }
         }
         self.set_start(VOID_PTR_NULL);
@@ -175,9 +180,10 @@ impl FastbinPtrOperation for *mut Fastbin {
             return obj;
         }
         if self.start().offset(obj_size) > self.end() {
-            let page = Heap.alloc(
-                Layout::from_size_align_unchecked(self.page_size(), self.align())
-            ).unwrap_or_else(|e| Heap.oom(e));
+            let page = Heap.alloc(Layout::from_size_align_unchecked(
+                self.page_size(),
+                self.align(),
+            )).unwrap_or_else(|e| Heap.oom(e));
             let mut line_ptr = page;
             set_page_next(page, self.pages());
             set_page_size(page, self.page_size());
@@ -340,11 +346,17 @@ mod test {
             a: u8,
         }
         let mut fb = Fastbin::new(mem::size_of::<Node>());
-        for _ in 0..3 { fb.alloc() as *mut Node; }
+        for _ in 0..3 {
+            fb.alloc() as *mut Node;
+        }
         let a = fb.alloc();
-        for _ in 0..3 { fb.alloc() as *mut Node; }
+        for _ in 0..3 {
+            fb.alloc() as *mut Node;
+        }
         let b = fb.alloc();
-        for _ in 0..3 { fb.alloc() as *mut Node; }
+        for _ in 0..3 {
+            fb.alloc() as *mut Node;
+        }
         let c = fb.alloc();
         assert!(fb.next.is_null());
         fb.del(a);
@@ -360,7 +372,9 @@ mod test {
 
     #[test]
     fn test_fastbin_destroy() {
-        struct Node { a: u8 }
+        struct Node {
+            a: u8,
+        }
         let mut fb = Fastbin::new(mem::size_of::<Node>());
         for _ in 0..150 {
             fb.alloc();

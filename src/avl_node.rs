@@ -15,7 +15,9 @@ pub struct AVLRoot {
 
 impl Default for AVLRoot {
     fn default() -> Self {
-        AVLRoot { node: ptr::null_mut() }
+        AVLRoot {
+            node: ptr::null_mut(),
+        }
     }
 }
 
@@ -187,7 +189,9 @@ impl AVLNodePtrBase for *mut AVLNode {
 
     #[inline]
     fn set_height(self, height: i32) {
-        unsafe { (*self).height = height; }
+        unsafe {
+            (*self).height = height;
+        }
     }
 
     #[inline]
@@ -244,17 +248,25 @@ impl AVLNodePtrBase for *mut AVLNode {
 
     fn check_valid(self) -> bool {
         use std::cmp;
-        if self.is_null() { return true; }
+        if self.is_null() {
+            return true;
+        }
         let h0 = self.left_height();
         let h1 = self.right_height();
         let diff = h0 - h1;
-        if self.height() != cmp::max(h0, h1) + 1 { return false; }
-        if diff < -1 || diff > 1 { return false; }
+        if self.height() != cmp::max(h0, h1) + 1 {
+            return false;
+        }
+        if diff < -1 || diff > 1 {
+            return false;
+        }
         self.left().check_valid() && self.right().check_valid()
     }
 
     fn get_node_num(self) -> i32 {
-        if self.is_null() { return 0; }
+        if self.is_null() {
+            return 0;
+        }
         self.left().get_node_num() + self.right().get_node_num() + 1
     }
 }
@@ -308,7 +320,12 @@ pub unsafe fn erase_node(mut node: AVLNodePtr, root: AVLRootPtr) {
 }
 
 #[inline]
-unsafe fn child_replace(old_node: AVLNodePtr, new_node: AVLNodePtr, parent: AVLNodePtr, root: AVLRootPtr) {
+unsafe fn child_replace(
+    old_node: AVLNodePtr,
+    new_node: AVLNodePtr,
+    parent: AVLNodePtr,
+    root: AVLRootPtr,
+) {
     if parent.is_null() {
         (*root).node = new_node;
     } else {
@@ -438,8 +455,12 @@ pub unsafe fn node_post_insert(mut node: AVLNodePtr, root: AVLRootPtr) {
 pub unsafe fn avl_node_replace(tar: AVLNodePtr, new_node: AVLNodePtr, root: AVLRootPtr) {
     let parent = tar.parent();
     child_replace(tar, new_node, parent, root);
-    if tar.left().not_null() { tar.left().set_parent(new_node); }
-    if tar.right().not_null() { tar.right().set_parent(new_node); }
+    if tar.left().not_null() {
+        tar.left().set_parent(new_node);
+    }
+    if tar.right().not_null() {
+        tar.right().set_parent(new_node);
+    }
     new_node.set_left(tar.left());
     new_node.set_right(tar.right());
     new_node.set_parent(tar.parent());
@@ -460,7 +481,9 @@ pub unsafe fn avl_node_tear(root: AVLRootPtr, cur: *mut AVLNodePtr) -> AVLNodePt
             node = node.left();
         } else if node.right().not_null() {
             node = node.right();
-        } else { break; }
+        } else {
+            break;
+        }
     }
     let parent = node.parent();
     *cur = parent;

@@ -10,7 +10,10 @@ pub struct ListHead {
 
 impl Default for ListHead {
     fn default() -> Self {
-        ListHead { next: ptr::null_mut(), prev: ptr::null_mut() }
+        ListHead {
+            next: ptr::null_mut(),
+            prev: ptr::null_mut(),
+        }
     }
 }
 
@@ -54,12 +57,16 @@ impl ListHeadPtrFn for *mut ListHead {
 
     #[inline]
     fn set_next(self, next: ListHeadPtr) {
-        unsafe { (*self).next = next; }
+        unsafe {
+            (*self).next = next;
+        }
     }
 
     #[inline]
     fn set_prev(self, prev: ListHeadPtr) {
-        unsafe { (*self).prev = prev; }
+        unsafe {
+            (*self).prev = prev;
+        }
     }
 
     #[inline]

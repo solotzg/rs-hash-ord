@@ -11,7 +11,7 @@ use std::cmp::Ord;
 use std::fmt::{self, Debug};
 use std::cmp::Ordering;
 use std::ptr;
-use std::iter::{IntoIterator, FromIterator};
+use std::iter::{FromIterator, IntoIterator};
 use std::marker;
 use std::mem;
 use std::ops::Index;
@@ -40,9 +40,9 @@ impl<K: Ord, V> RBTreeNode<K, V> {
 }
 
 impl<K, V> Debug for RBTreeNode<K, V>
-    where
-        K: Ord + Debug,
-        V: Debug,
+where
+    K: Ord + Debug,
+    V: Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "k:{:?} v:{:?} c:{:?}", self.key, self.value, self.color)
@@ -226,7 +226,6 @@ impl<K: Ord, V> NodePtr<K, V> {
         unsafe { (*self.0).right = right }
     }
 
-
     #[inline]
     fn parent(&self) -> NodePtr<K, V> {
         if self.is_null() {
@@ -357,9 +356,9 @@ impl<K: Ord + Clone, V: Clone> Clone for RBTree<K, V> {
 }
 
 impl<K, V> Debug for RBTree<K, V>
-    where
-        K: Ord + Debug,
-        V: Debug,
+where
+    K: Ord + Debug,
+    V: Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_map().entries(self.iter()).finish()
@@ -404,30 +403,30 @@ impl<K: Ord + Debug, V: Debug> RBTree<K, V> {
 
 /// all key be same, but it has multi key, if has multi key, it perhaps no correct
 impl<K, V> PartialEq for RBTree<K, V>
-    where
-        K: Eq + Ord,
-        V: PartialEq,
+where
+    K: Eq + Ord,
+    V: PartialEq,
 {
     fn eq(&self, other: &RBTree<K, V>) -> bool {
         if self.len() != other.len() {
             return false;
         }
 
-        self.iter().all(|(key, value)| {
-            other.get(key).map_or(false, |v| *value == *v)
-        })
+        self.iter()
+            .all(|(key, value)| other.get(key).map_or(false, |v| *value == *v))
     }
 }
 
 impl<K, V> Eq for RBTree<K, V>
-    where
-        K: Eq + Ord,
-        V: Eq,
-{}
+where
+    K: Eq + Ord,
+    V: Eq,
+{
+}
 
 impl<'a, K, V> Index<&'a K> for RBTree<K, V>
-    where
-        K: Ord,
+where
+    K: Ord,
 {
     type Output = V;
 
@@ -437,9 +436,8 @@ impl<'a, K, V> Index<&'a K> for RBTree<K, V>
     }
 }
 
-
 impl<K: Ord, V> FromIterator<(K, V)> for RBTree<K, V> {
-    fn from_iter<T: IntoIterator<Item=(K, V)>>(iter: T) -> RBTree<K, V> {
+    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> RBTree<K, V> {
         let mut tree = RBTree::new();
         tree.extend(iter);
         tree
@@ -448,7 +446,7 @@ impl<K: Ord, V> FromIterator<(K, V)> for RBTree<K, V> {
 
 /// RBTree into iter
 impl<K: Ord, V> Extend<(K, V)> for RBTree<K, V> {
-    fn extend<T: IntoIterator<Item=(K, V)>>(&mut self, iter: T) {
+    fn extend<T: IntoIterator<Item = (K, V)>>(&mut self, iter: T) {
         let iter = iter.into_iter();
         for (k, v) in iter {
             self.insert(k, v);
@@ -474,7 +472,9 @@ pub struct Keys<'a, K: Ord + 'a, V: 'a> {
 
 impl<'a, K: Ord, V> Clone for Keys<'a, K, V> {
     fn clone(&self) -> Keys<'a, K, V> {
-        Keys { inner: self.inner.clone() }
+        Keys {
+            inner: self.inner.clone(),
+        }
     }
 }
 
@@ -517,7 +517,9 @@ pub struct Values<'a, K: 'a + Ord, V: 'a> {
 
 impl<'a, K: Ord, V> Clone for Values<'a, K, V> {
     fn clone(&self) -> Values<'a, K, V> {
-        Values { inner: self.inner.clone() }
+        Values {
+            inner: self.inner.clone(),
+        }
     }
 }
 
@@ -526,7 +528,6 @@ impl<'a, K: Ord + Debug, V: Debug> fmt::Debug for Values<'a, K, V> {
         f.debug_list().entries(self.clone()).finish()
     }
 }
-
 
 impl<'a, K: Ord, V> Iterator for Values<'a, K, V> {
     type Item = &'a V;
@@ -564,7 +565,9 @@ pub struct ValuesMut<'a, K: 'a + Ord, V: 'a> {
 
 impl<'a, K: Ord, V> Clone for ValuesMut<'a, K, V> {
     fn clone(&self) -> ValuesMut<'a, K, V> {
-        ValuesMut { inner: self.inner.clone() }
+        ValuesMut {
+            inner: self.inner.clone(),
+        }
     }
 }
 
@@ -798,7 +801,6 @@ impl<'a, K: Ord + 'a, V: 'a> DoubleEndedIterator for IterMut<'a, K, V> {
         Some((k, v))
     }
 }
-
 
 impl<K: Ord, V> IntoIterator for RBTree<K, V> {
     type Item = (K, V);
@@ -1374,7 +1376,9 @@ impl<K: Ord, V> RBTree<K, V> {
     /// Return the value iter mut
     #[inline]
     pub fn values_mut(&mut self) -> ValuesMut<K, V> {
-        ValuesMut { inner: self.iter_mut() }
+        ValuesMut {
+            inner: self.iter_mut(),
+        }
     }
 
     /// Return the key and value iter

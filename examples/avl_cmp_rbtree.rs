@@ -1,6 +1,6 @@
 extern crate hash_ord;
-extern crate time;
 extern crate rand;
+extern crate time;
 
 mod rbtree_by_tickdream125;
 
@@ -34,11 +34,7 @@ fn run(n: usize) {
     let mut count = 0;
     let start = time::now();
     for num in &v {
-        count += if t.contains_key(num) {
-            1
-        } else {
-            0
-        };
+        count += if t.contains_key(num) { 1 } else { 0 };
     }
     let end = time::now();
     let duration = end - start;
@@ -79,11 +75,7 @@ fn run(n: usize) {
     let mut count = 0;
     let start = time::now();
     for num in &v {
-        count += if t.contains_key(num) {
-            1
-        } else {
-            0
-        };
+        count += if t.contains_key(num) { 1 } else { 0 };
     }
     let end = time::now();
     let duration = end - start;

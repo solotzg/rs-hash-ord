@@ -1,6 +1,6 @@
 extern crate hash_ord;
-extern crate time;
 extern crate rand;
+extern crate time;
 
 use hash_ord::hash_map;
 use std::collections::HashMap as STLHashMap;
@@ -29,7 +29,7 @@ pub fn default_make_avl_element(n: usize) -> Vec<usize> {
 fn main() {
     run(1_000_000);
     run(5_000_000);
-//    run(10_000_000);
+    //    run(10_000_000);
 }
 
 fn run(max_num: usize) {
@@ -53,7 +53,11 @@ fn test_stl_hash_map(max_num: usize, v: &Vec<usize>) {
     let start = time::now();
     let mut cnt = 0;
     for i in v {
-        cnt += if map.get(&i.to_string()).is_none() { 0 } else { 1 };
+        cnt += if map.get(&i.to_string()).is_none() {
+            0
+        } else {
+            1
+        };
     }
     let duration = time::now() - start;
     println!("find {}, time {}", cnt, duration);
@@ -77,12 +81,19 @@ fn test_hash_avl_map(max_num: usize, v: &Vec<usize>) {
     let duration = time::now() - start;
     println!("insert time {}", duration);
 
-    println!("max node num of single index: {}", map.get_max_node_of_single_index());
+    println!(
+        "max node num of single index: {}",
+        map.get_max_node_of_single_index()
+    );
 
     let start = time::now();
     let mut cnt = 0;
     for i in v {
-        cnt += if map.get(&i.to_string()).is_none() { 0 } else { 1 };
+        cnt += if map.get(&i.to_string()).is_none() {
+            0
+        } else {
+            1
+        };
     }
     let duration = time::now() - start;
     println!("find {}, time {}", cnt, duration);

@@ -4,6 +4,32 @@
 * To improve performance, raw pointer is used frequently. Because Rust uses a similar memory model to C/C++, two classic macros
 `offset_of` and `container_of` are used to dereference member variables into main struct.
 `Fastbin` is implemented to reduce the cost of memory allocation.
+* The whole structure os HashMap is like:
+```
+ HashMap:
+         ------------------------------------------
+         |   HashIndex   |   HashIndex   |   ...
+         ------------------------------------------
+                                                 ----------------
+ HashIndex:                                      |    ......    |
+         ----------------    ----------------    |   AVL Node   |
+         |   ........   |    |   AVL Root   |==> ----------------
+ ... <==>|   ListHead   |<==>|   ListHead   |<==> ... <==> HEAD <==> ...
+         ----------------    ----------------
+
+ InternalHashEntry
+             ----------------
+             |   HashNode   |
+             |     Value    |
+             ----------------
+
+ HashNode
+          ----------------    -----------------
+          |    ......    |    |   HashValue   |
+          |    ......    |    |      Key      |
+  ... <==>|   AVL Node   |<==>|    AVL Node   |<==> ...
+          ----------------    -----------------
+```
 # Usage
 Notice the Trait. Usage of most functions is same as STL HashMap, you can find examples in test case. 
 ```
@@ -143,4 +169,4 @@ remove time PT0.089153558S
 # Conclusion
 * Rust is called `zero cost abstraction`, of course that's true. But comparing with C/C++, its compiler optimization is not good enough. 
 In C/C++, syntax like `a = ( b < c ) ? d : e` may not generate branch, which means search operation on AVL could be better 
-when the type of key is `1~8 Bytes`
+when the type of key is `1~8 Bytes`.
