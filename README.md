@@ -1,10 +1,12 @@
 # OrdMap & HashMap
-* AVL is not worse than RBTree, and is also a feasible way to resolve Hash Collision Attack.
-* This package expose two public structs: `OrdMap` which implemented by optimized AVL, `HashMap` whose every index contains an AVL-Tree.
+* AVL is not worse than RBTree and is also a feasible way to resolve Hash Collision Attack.
+* This package exposes two public structs: `OrdMap` which implemented by optimized AVL, `HashMap` whose every index contains an AVL-Tree.
 * To improve performance, raw pointer is used frequently. Because Rust uses a similar memory model to C/C++, two classic macros
 `offset_of` and `container_of` are used to dereference member variables into main struct.
 `Fastbin` is implemented to reduce the cost of memory allocation.
-* The whole structure os HashMap is like:
+* `insert` and `remove` operations are optimized by selectively skipping `AVL Rebalance`, because under 95% of indexes, 
+there are less than 3 nodes.
+* The whole structure of HashMap is like:
 ```
  HashMap:
          ------------------------------------------
@@ -31,7 +33,8 @@
           ----------------    -----------------
 ```
 # Usage
-Notice the Trait. Usage of most functions is same as STL HashMap, you can find examples in test case. 
+Notice the Trait. Usage of most functions is same as STL HashMap, you can find examples in test case or 
+[Documentation](https://docs.rs/hash_ord/). 
 ```
 impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher
 impl<K, V> OrdMap<K, V> where K: Ord
@@ -51,44 +54,44 @@ It performs much better in clear case benefit from `Fastbin`
 ```
 avl tree
 size 1000000
-build time PT0.523259712S 
+build time PT0.086414625S 
 contain count 1000000
-find time PT0.462317294S 
-remove time PT0.456915364S 
-insert after remove time PT0.442013480S 
-clear time PT0.029607052S 
+find time PT0.079008516S 
+remove time PT0.047414057S 
+insert after remove time PT0.068621561S 
+clear time PT0.020838042S 
 
 rbtree
 size 1000000
-build time PT0.615952198S 
+build time PT0.255747347S 
 contain count 1000000
-find time PT0.570363857S 
-remove time PT0.641548505S 
-insert after remove time PT0.613216248S 
-clear time PT0.162732696S 
+find time PT0.128373407S 
+remove time PT0.129552620S 
+insert after remove time PT0.256210620S 
+clear time PT0.051735117S 
 --------------------------------------------
 
 avl tree
 size 10000000
-build time PT11.083079762S 
+build time PT0.996452066S 
 contain count 10000000
-find time PT9.908204148S 
-remove time PT11.365612250S 
-insert after remove time PT11.503721610S 
-clear time PT0.474218222S 
+find time PT0.862577411S 
+remove time PT0.641826155S 
+insert after remove time PT0.779849807S 
+clear time PT0.206050905S 
 
 rbtree
 size 10000000
-build time PT12.478368807S 
+build time PT3.348531156S 
 contain count 10000000
-find time PT11.286116786S 
-remove time PT12.362542744S 
-insert after remove time PT12.062266663S 
-clear time PT2.479094958S 
+find time PT1.482958388S 
+remove time PT1.538498453S 
+insert after remove time PT3.361221077S 
+clear time PT0.505872813S 
 --------------------------------------------
 ```
 ## HashMap Competition
-Run commend
+Run command
 ```
 cargo run --release --example hash_map_cmp_string
 ```
@@ -166,7 +169,3 @@ find 10000, time PT0.079600027S
 remove time PT0.089153558S
 --------------------------------
 ```
-# Conclusion
-* Rust is called `zero cost abstraction`, of course that's true. But comparing with C/C++, its compiler optimization is not good enough. 
-In C/C++, syntax like `a = ( b < c ) ? d : e` may not generate branch, which means search operation on AVL could be better 
-when the type of key is `1~8 Bytes`.
