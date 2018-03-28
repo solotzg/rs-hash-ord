@@ -811,6 +811,8 @@ impl<'a, K, V, S> OccupiedEntry<'a, K, V, S> {
     /// if let Entry::Occupied(entry) = map.entry(my_key) {
     ///     // Also replace the key with a handle to our other key.
     ///     let (old_key, old_value): (Rc<String>, u32) = entry.replace_entry(16);
+    ///     assert_eq!(Rc::strong_count(&old_key), 1);
+    ///     assert!(old_value == 15);
     /// }
     ///
     /// ```
@@ -1184,6 +1186,44 @@ impl<K, V, S> HashMap<K, V, S> {
             len: self.len(),
         }
     }
+
+    /// Clears the map, returning all key-value pairs as an iterator. Keeps the
+    /// allocated memory for reuse.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hash_ord::hash_map::HashMap;
+    ///
+    /// let mut a = HashMap::new();
+    /// a.insert(1, "a");
+    /// a.insert(2, "b");
+    ///
+    /// for (k, v) in a.drain().take(1) {
+    ///     assert!(k == 1 || k == 2);
+    ///     assert!(v == "a" || v == "b");
+    /// }
+    ///
+    /// assert!(a.is_empty());
+    /// ```
+    #[inline]
+    pub fn drain(&mut self) -> Drain<K, V, S> {
+        Drain {
+            entry: self.first(),
+            map: self,
+        }
+    }
+
+    fn erase(&mut self, entry: *mut InternalHashEntry<K, V>) -> Option<(K, V)> {
+        debug_assert!(!entry.is_null());
+        debug_assert!(!entry.node_ptr().avl_node_ptr().empty());
+        self.hash_table.hash_erase(entry.node_ptr());
+        let kv = key_deref_to_kv::<K, V>(entry.key());
+        self.entry_fastbin.del(entry as VoidPtr);
+        let res = unsafe { Some(ptr::read(kv)) };
+        self.kv_fastbin.del(kv as VoidPtr);
+        res
+    }
 }
 
 impl<K, V, S> HashMap<K, V, S>
@@ -1262,17 +1302,6 @@ where
     /// ```
     pub fn with_hasher(hash_builder: S) -> Self {
         HashMap::with_capacity_and_hasher(0, hash_builder)
-    }
-
-    fn erase(&mut self, entry: *mut InternalHashEntry<K, V>) -> Option<(K, V)> {
-        debug_assert!(!entry.is_null());
-        debug_assert!(!entry.node_ptr().avl_node_ptr().empty());
-        self.hash_table.hash_erase(entry.node_ptr());
-        let kv = key_deref_to_kv::<K, V>(entry.key());
-        self.entry_fastbin.del(entry as VoidPtr);
-        let res = unsafe { Some(ptr::read(kv)) };
-        self.kv_fastbin.del(kv as VoidPtr);
-        res
     }
 
     #[inline]
@@ -1609,6 +1638,60 @@ impl<K, V, S> Drop for HashMap<K, V, S> {
     }
 }
 
+/// A draining iterator over the entries of a `HashMap`.
+///
+/// This `struct` is created by the [`drain`] method on [`HashMap`]. See its
+/// documentation for more.
+///
+/// [`drain`]: struct.HashMap.html#method.drain
+/// [`HashMap`]: struct.HashMap.html
+pub struct Drain<'a, K, V, S>
+where
+    K: 'a,
+    V: 'a,
+    S: 'a,
+{
+    entry: *mut InternalHashEntry<K, V>,
+    map: &'a mut HashMap<K, V, S>,
+}
+
+impl<'a, K, V, S> Drop for Drain<'a, K, V, S>
+where
+    K: 'a,
+    V: 'a,
+    S: 'a,
+{
+    fn drop(&mut self) {
+        for _ in self {}
+    }
+}
+
+impl<'a, K, V, S> Iterator for Drain<'a, K, V, S> {
+    type Item = (K, V);
+
+    #[inline]
+    fn next(&mut self) -> Option<(K, V)> {
+        let entry = self.entry;
+        if entry.is_null() {
+            return None;
+        }
+        self.entry = self.map.next(entry);
+        self.map.erase(entry)
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.map.len(), Some(self.map.len()))
+    }
+}
+
+impl<'a, K, V, S> ExactSizeIterator for Drain<'a, K, V, S> {
+    #[inline]
+    fn len(&self) -> usize {
+        self.map.len()
+    }
+}
+
 impl<'a, K, Q, V, S> Index<&'a Q> for HashMap<K, V, S>
 where
     Q: ?Sized + Hash + Ord,
@@ -1695,7 +1778,6 @@ where
     fn into_iter(self) -> Self::IntoIter {
         IntoIter {
             entry: self.first(),
-            len: self.len(),
             map: self,
         }
     }
@@ -1715,7 +1797,6 @@ where
 {
     entry: *mut InternalHashEntry<K, V>,
     map: HashMap<K, V, S>,
-    len: usize,
 }
 
 impl<K, V, S> Drop for IntoIter<K, V, S>
@@ -1737,16 +1818,15 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         let entry = self.entry;
-        if self.len == 0 || entry.is_null() {
+        if entry.is_null() {
             return None;
         }
         self.entry = self.map.next(entry);
-        self.len -= 1;
         self.map.erase(entry)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.len, Some(self.len))
+        (self.map.len(), Some(self.map.len()))
     }
 }
 

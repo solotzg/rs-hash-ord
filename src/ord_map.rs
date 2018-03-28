@@ -35,6 +35,7 @@ impl<K, V> AVLEntryOperation<K, V> for *mut AVLEntry<K, V> {
 
 trait AVLTreeNodeOperation {
     fn key_ref<'a, K, V>(self) -> &'a K;
+    fn key_mut<'a, K, V>(self) -> &'a mut K;
     fn value_ref<'a, K, V>(self) -> &'a V;
     fn value_mut<'a, K, V>(self) -> &'a mut V;
     fn set_value<K, V>(self, value: V);
@@ -45,6 +46,10 @@ impl AVLTreeNodeOperation for *mut AVLNode {
     #[inline]
     fn key_ref<'a, K, V>(self) -> &'a K {
         unsafe { &(*self.avl_node_deref_to_entry::<K, V>()).key }
+    }
+
+    fn key_mut<'a, K, V>(self) -> &'a mut K {
+        unsafe { &mut (*self.avl_node_deref_to_entry::<K, V>()).key }
     }
 
     #[inline]
@@ -149,13 +154,9 @@ where
         }
     }
 
-    fn erase<F>(&mut self, f: F, op: CursorsOperation)
-    where
-        F: Fn(Option<(K, V)>),
-    {
+    fn erase(&mut self, op: CursorsOperation) -> Option<(K, V)> {
         if self.pos.is_null() {
-            f(None);
-            return;
+            return None;
         }
         let node = self.pos;
         match op {
@@ -163,7 +164,7 @@ where
             CursorsOperation::PREV => self.prev(),
         }
         unsafe {
-            f(self.tree_mut.remove_node(node));
+            return self.tree_mut.remove_node(node);
         }
     }
 
@@ -179,16 +180,12 @@ where
     /// map.insert(2, 2);
     /// map.insert(3, 3);
     /// let mut cursors = map.find_cursors(&2);
-    /// cursors.erase_then_next(|x| {
-    ///     assert_eq!(x.unwrap().0, 2);
-    /// });
+    /// let x = cursors.erase_then_next();
+    /// assert_eq!(x.unwrap().0, 2);
     /// assert_eq!(*cursors.get().unwrap().0, 3);
     /// ```
-    pub fn erase_then_next<F>(&mut self, f: F)
-    where
-        F: Fn(Option<(K, V)>),
-    {
-        self.erase(f, CursorsOperation::NEXT);
+    pub fn erase_then_next(&mut self) -> Option<(K, V)> {
+        self.erase(CursorsOperation::NEXT)
     }
 
     /// Erase current pos, and move to prev.
@@ -203,16 +200,12 @@ where
     /// map.insert(2, 2);
     /// map.insert(3, 3);
     /// let mut cursors = map.find_cursors(&2);
-    /// cursors.erase_then_prev(|x| {
-    ///     assert_eq!(x.unwrap().0, 2);
-    /// });
+    /// let x = cursors.erase_then_prev();
+    /// assert_eq!(x.unwrap().0, 2);
     /// assert_eq!(*cursors.get().unwrap().0, 1);
     /// ```
-    pub fn erase_then_prev<F>(&mut self, f: F)
-    where
-        F: Fn(Option<(K, V)>),
-    {
-        self.erase(f, CursorsOperation::PREV);
+    pub fn erase_then_prev(&mut self) -> Option<(K, V)> {
+        self.erase(CursorsOperation::PREV)
     }
 }
 
@@ -326,20 +319,258 @@ where
 ///      ("Iceland", 10)]
 ///      .iter().cloned().collect();
 ///
-pub struct OrdMap<K, V>
-where
-    K: Ord,
-{
+pub struct OrdMap<K, V> {
     root: AVLRoot,
     count: usize,
     entry_fastbin: Fastbin,
     _marker: marker::PhantomData<(K, V)>,
 }
 
+/// A view into an occupied entry in a `OrdMap`.
+/// It is part of the [`Entry`] enum.
+///
+/// [`Entry`]: enum.Entry.html
+pub struct OccupiedEntry<'a, K, V>
+where
+    K: 'a,
+    V: 'a,
+{
+    key: Option<K>,
+    node: AVLNodePtr,
+    ord_map_mut: &'a mut OrdMap<K, V>,
+}
+
+/// A view into a vacant entry in a `OrdMap`.
+/// It is part of the [`Entry`] enum.
+///
+/// [`Entry`]: enum.Entry.html
+pub struct VacantEntry<'a, K, V>
+where
+    K: 'a,
+    V: 'a,
+{
+    key: K,
+    parent: AVLNodePtr,
+    link: *mut AVLNodePtr,
+    ord_map_mut: &'a mut OrdMap<K, V>,
+}
+
+/// A view into a single entry in a map, which may either be vacant or occupied.
+///
+/// This `enum` is constructed from the [`entry`] method on [`OrdMap`].
+///
+/// [`OrdMap`]: struct.OrdMap.html
+/// [`entry`]: struct.OrdMap.html#method.entry
+pub enum Entry<'a, K, V>
+where
+    K: 'a,
+    V: 'a,
+{
+    /// An occupied entry.
+    Occupied(OccupiedEntry<'a, K, V>),
+
+    /// A vacant entry.
+    Vacant(VacantEntry<'a, K, V>),
+}
+
+impl<'a, K, V> Entry<'a, K, V>
+where
+    K: Ord,
+{
+    pub fn or_insert(self, default: V) -> &'a mut V {
+        match self {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => entry.insert(default),
+        }
+    }
+
+    pub fn or_insert_with<F: FnOnce() -> V>(self, default: F) -> &'a mut V {
+        match self {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => entry.insert(default()),
+        }
+    }
+
+    pub fn and_modify<F>(self, mut f: F) -> Self
+    where
+        F: FnMut(&mut V),
+    {
+        match self {
+            Entry::Occupied(mut entry) => {
+                f(entry.get_mut());
+                Entry::Occupied(entry)
+            }
+            Entry::Vacant(entry) => Entry::Vacant(entry),
+        }
+    }
+}
+
+impl<'a, K, V> OccupiedEntry<'a, K, V>
+where
+    K: Ord,
+{
+    pub fn remove_entry(self) -> (K, V) {
+        unsafe { self.ord_map_mut.remove_node(self.node).unwrap() }
+    }
+
+    pub fn remove(self) -> V {
+        self.remove_entry().1
+    }
+
+    pub fn key(&self) -> &K {
+        &*self.node.key_ref::<K, V>()
+    }
+
+    fn take_key(&mut self) -> Option<K> {
+        self.key.take()
+    }
+
+    pub fn replace_key(self) -> K {
+        let old_key = self.node.key_mut::<K, V>();
+        mem::replace(old_key, self.key.unwrap())
+    }
+
+    pub fn get(&self) -> &V {
+        self.node.value_ref::<K, V>()
+    }
+
+    pub fn get_mut(&mut self) -> &mut V {
+        self.node.value_mut::<K, V>()
+    }
+
+    pub fn into_mut(self) -> &'a mut V {
+        self.node.value_mut::<K, V>()
+    }
+
+    pub fn insert(&mut self, mut value: V) -> V {
+        let old_value = self.get_mut();
+        mem::swap(&mut value, old_value);
+        value
+    }
+
+    pub fn replace_entry(self, value: V) -> (K, V) {
+        let old_key = self.node.key_mut::<K, V>();
+        let old_key = mem::replace(old_key, self.key.unwrap());
+        let old_value = self.node.value_mut::<K, V>();
+        let old_value = mem::replace(old_value, value);
+        (old_key, old_value)
+    }
+}
+
+impl<'a, K, V> VacantEntry<'a, K, V>
+where
+    K: Ord,
+{
+    pub fn key(&self) -> &K {
+        &self.key
+    }
+
+    pub fn into_key(self) -> K {
+        self.key
+    }
+
+    unsafe fn _internal_insert(self, value: V) -> &'a mut V {
+        let key = self.key;
+        let new_entry = self.ord_map_mut.entry_alloc(key, value);
+        let new_node = new_entry.node_ptr();
+        avl_node::link_node(new_node, self.parent, self.link);
+        avl_node::node_post_insert(new_node, self.ord_map_mut.get_root_ptr());
+        self.ord_map_mut.count += 1;
+        &mut *new_entry.value()
+    }
+
+    pub fn insert(self, value: V) -> &'a mut V {
+        unsafe { self._internal_insert(value) }
+    }
+}
+
+impl<K, V> OrdMap<K, V> {
+    fn recursive_drop_node(&mut self, node: AVLNodePtr) {
+        if node.left().not_null() {
+            self.recursive_drop_node(node.left());
+        }
+        if node.right().not_null() {
+            self.recursive_drop_node(node.right());
+        }
+        let entry = node.avl_node_deref_to_entry::<K, V>();
+        if mem::needs_drop::<AVLEntry<K, V>>() {
+            unsafe {
+                ptr::drop_in_place(entry);
+            }
+        }
+        self.entry_fastbin.del(entry as VoidPtr);
+    }
+
+    /// Clears the map, removing all key-value pairs. Keeps the allocated memory
+    /// for reuse.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hash_ord::ord_map::OrdMap;
+    ///
+    /// let mut a = OrdMap::new();
+    /// a.insert(1, "a");
+    /// a.clear();
+    /// assert!(a.is_empty());
+    /// ```
+    #[inline]
+    pub fn clear(&mut self) {
+        let node = self.root.node;
+        if node.not_null() {
+            self.recursive_drop_node(node);
+        }
+        self.root.node = ptr::null_mut();
+        self.count = 0;
+    }
+
+    #[inline]
+    fn destroy(&mut self) {
+        self.clear();
+    }
+}
+
 impl<K, V> OrdMap<K, V>
 where
     K: Ord,
 {
+    /// Gets the given key's corresponding entry in the map for in-place manipulation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hash_ord::ord_map::OrdMap;
+    ///
+    /// let mut letters = OrdMap::new();
+    ///
+    /// for ch in "a short treatise on fungi".chars() {
+    ///     let counter = letters.entry(ch).or_insert(0);
+    ///     *counter += 1;
+    /// }
+    ///
+    /// assert_eq!(letters[&'s'], 2);
+    /// assert_eq!(letters[&'t'], 3);
+    /// assert_eq!(letters[&'u'], 1);
+    /// assert_eq!(letters.get(&'y'), None);
+    /// ```
+    pub fn entry(&mut self, key: K) -> Entry<K, V> {
+        let (duplicate, parent, link) = unsafe { self.find_duplicate(&key) };
+        if duplicate.is_null() {
+            return Entry::Vacant(VacantEntry {
+                key,
+                parent,
+                link,
+                ord_map_mut: self,
+            });
+        } else {
+            return Entry::Occupied(OccupiedEntry {
+                key: Some(key),
+                node: duplicate,
+                ord_map_mut: self,
+            });
+        };
+    }
+
     /// Returns the cursors of a found pos.
     #[inline]
     pub fn find_cursors<Q>(&mut self, q: &Q) -> Cursors<K, V>
@@ -474,28 +705,24 @@ where
     }
 
     #[inline]
-    fn find_duplicate(&mut self, key: &K) -> (AVLNodePtr, AVLNodePtr, *mut AVLNodePtr) {
-        unsafe {
-            let mut duplicate = ptr::null_mut();
-            let mut cmp_node_ref = &mut self.root.node as *mut AVLNodePtr;
-            let mut parent = ptr::null_mut();
-            while (*cmp_node_ref).not_null() {
-                parent = *cmp_node_ref;
-                match key.cmp(parent.key_ref::<K, V>()) {
-                    Ordering::Less => {
-                        cmp_node_ref = parent.left_mut();
-                    }
-                    Ordering::Equal => {
-                        duplicate = parent;
-                        break;
-                    }
-                    Ordering::Greater => {
-                        cmp_node_ref = parent.right_mut();
-                    }
+    unsafe fn find_duplicate(&mut self, key: &K) -> (AVLNodePtr, AVLNodePtr, *mut AVLNodePtr) {
+        let mut cmp_node_ref = &mut self.root.node as *mut AVLNodePtr;
+        let mut parent = ptr::null_mut();
+        while (*cmp_node_ref).not_null() {
+            parent = *cmp_node_ref;
+            match key.cmp(parent.key_ref::<K, V>()) {
+                Ordering::Less => {
+                    cmp_node_ref = parent.left_mut();
+                }
+                Ordering::Equal => {
+                    return (parent, parent, cmp_node_ref);
+                }
+                Ordering::Greater => {
+                    cmp_node_ref = parent.right_mut();
                 }
             }
-            (duplicate, parent, cmp_node_ref)
         }
+        (ptr::null_mut(), parent, cmp_node_ref)
     }
 
     #[inline]
@@ -708,50 +935,6 @@ where
         }
     }
 
-    fn recursive_drop_node(&mut self, node: AVLNodePtr) {
-        if node.left().not_null() {
-            self.recursive_drop_node(node.left());
-        }
-        if node.right().not_null() {
-            self.recursive_drop_node(node.right());
-        }
-        let entry = node.avl_node_deref_to_entry::<K, V>();
-        if mem::needs_drop::<AVLEntry<K, V>>() {
-            unsafe {
-                ptr::drop_in_place(entry);
-            }
-        }
-        self.entry_fastbin.del(entry as VoidPtr);
-    }
-
-    /// Clears the map, removing all key-value pairs. Keeps the allocated memory
-    /// for reuse.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use hash_ord::ord_map::OrdMap;
-    ///
-    /// let mut a = OrdMap::new();
-    /// a.insert(1, "a");
-    /// a.clear();
-    /// assert!(a.is_empty());
-    /// ```
-    #[inline]
-    pub fn clear(&mut self) {
-        let node = self.root.node;
-        if node.not_null() {
-            self.recursive_drop_node(node);
-        }
-        self.root.node = ptr::null_mut();
-        self.count = 0;
-    }
-
-    #[inline]
-    fn destroy(&mut self) {
-        self.clear();
-    }
-
     #[inline]
     fn link_post_insert(
         &mut self,
@@ -795,7 +978,7 @@ where
     /// ```
     #[inline]
     pub fn insert(&mut self, key: K, value: V) -> Option<(K, V)> {
-        let (duplicate, parent, cmp_node_ref) = self.find_duplicate(&key);
+        let (duplicate, parent, cmp_node_ref) = unsafe { self.find_duplicate(&key) };
         let entry = self.entry_alloc(key, value);
         if duplicate.is_null() {
             self.link_post_insert(entry.node_ptr(), parent, cmp_node_ref);
@@ -952,10 +1135,7 @@ where
     }
 }
 
-impl<K, V> Drop for OrdMap<K, V>
-where
-    K: Ord,
-{
+impl<K, V> Drop for OrdMap<K, V> {
     fn drop(&mut self) {
         self.destroy();
     }
@@ -1376,6 +1556,8 @@ pub mod test {
     use ord_map::AVLTreeNodeOperation;
     use avl_node::AVLNodePtrBase;
     use std::cell::RefCell;
+    use ord_map::Entry::*;
+    use std::rc::Rc;
 
     type DefaultType = OrdMap<i32, Option<i32>>;
 
@@ -1664,17 +1846,20 @@ pub mod test {
                 cursors.prev();
             }
             assert_eq!(*cursors.get().unwrap().0, 55);
-            cursors.erase_then_next(|x| {
-                assert!(x.is_some());
-                assert_eq!(x.unwrap().0, 55);
-            });
+            let x = cursors.erase_then_next();
+
+            assert!(x.is_some());
+            assert_eq!(x.unwrap().0, 55);
+
             assert_eq!(*cursors.get().unwrap().0, 56);
             cursors.prev();
             assert_eq!(*cursors.get().unwrap().0, 54);
-            cursors.erase_then_prev(|x| {
-                assert!(x.is_some());
-                assert_eq!(x.unwrap().0, 54);
-            });
+
+            let x = cursors.erase_then_prev();
+
+            assert!(x.is_some());
+            assert_eq!(x.unwrap().0, 54);
+
             assert_eq!(*cursors.get().unwrap().0, 53);
             cursors.next();
             assert_eq!(*cursors.get().unwrap().0, 56);
@@ -1682,7 +1867,7 @@ pub mod test {
             *cursors.get_mut().unwrap().1 = None;
             assert_eq!(*cursors.get().unwrap().1, None);
 
-            cursors.erase_then_prev(|_| {});
+            cursors.erase_then_prev();
         }
         assert_eq!(t.len(), 97);
         {
@@ -1725,6 +1910,64 @@ pub mod test {
         let map: OrdMap<_, _> = xs.iter().cloned().collect();
         for &(k, v) in &xs {
             assert_eq!(map.get(&k), Some(&v));
+        }
+    }
+
+    #[test]
+    fn test_entry() {
+        let xs = [(1, 10), (2, 20), (3, 30), (4, 40), (5, 50), (6, 60)];
+
+        let mut map: OrdMap<_, _> = xs.iter().cloned().collect();
+
+        match map.entry(1) {
+            Vacant(_) => unreachable!(),
+            Occupied(mut view) => {
+                assert_eq!(view.get(), &10);
+                assert_eq!(view.insert(100), 10);
+            }
+        }
+        assert_eq!(map.get(&1).unwrap(), &100);
+        assert_eq!(map.len(), 6);
+
+        match map.entry(2) {
+            Vacant(_) => unreachable!(),
+            Occupied(mut view) => {
+                let v = view.get_mut();
+                let new_v = (*v) * 10;
+                *v = new_v;
+            }
+        }
+        assert_eq!(map.get(&2).unwrap(), &200);
+        assert_eq!(map.len(), 6);
+
+        match map.entry(3) {
+            Vacant(_) => unreachable!(),
+            Occupied(view) => {
+                assert_eq!(view.remove(), 30);
+            }
+        }
+        assert_eq!(map.get(&3), None);
+        assert_eq!(map.len(), 5);
+
+        match map.entry(10) {
+            Occupied(_) => unreachable!(),
+            Vacant(view) => {
+                assert_eq!(*view.insert(1000), 1000);
+            }
+        }
+        assert_eq!(map.get(&10).unwrap(), &1000);
+        assert_eq!(map.len(), 6);
+
+        let mut map: OrdMap<Rc<String>, u32> = OrdMap::new();
+        map.insert(Rc::new("Stringthing".to_string()), 15);
+
+        let my_key = Rc::new("Stringthing".to_string());
+
+        if let Occupied(entry) = map.entry(my_key) {
+            // Also replace the key with a handle to our other key.
+            let (old_key, old_value): (Rc<String>, u32) = entry.replace_entry(16);
+            assert_eq!(Rc::strong_count(&old_key), 1);
+            assert_eq!(old_value, 15);
         }
     }
 }
