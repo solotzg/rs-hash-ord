@@ -1462,6 +1462,7 @@ where
             let old_kv_ptr = key_deref_to_kv(old_entry.key());
             let res = unsafe { Some(ptr::read(old_kv_ptr)) };
             self.kv_fastbin.del(old_kv_ptr as VoidPtr);
+            self.entry_fastbin.del(old_entry as VoidPtr);
             res
         }
     }
