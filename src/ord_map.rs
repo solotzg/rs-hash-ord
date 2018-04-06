@@ -534,6 +534,155 @@ impl<K, V> OrdMap<K, V>
 where
     K: Ord,
 {
+    /// Moves all elements from `other` into `Self`, leaving `other` empty.
+    /// O(n) time complexity
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hash_ord::ord_map::OrdMap;
+    ///
+    /// let mut a = OrdMap::new();
+    /// a.insert(1, "a");
+    /// a.insert(2, "b");
+    /// a.insert(3, "c");
+    ///
+    /// let mut b = OrdMap::new();
+    /// b.insert(3, "d");
+    /// b.insert(4, "e");
+    /// b.insert(5, "f");
+    ///
+    /// a.append(&mut b);
+    ///
+    /// assert_eq!(a.len(), 5);
+    /// assert_eq!(b.len(), 0);
+    ///
+    /// assert_eq!(a[&1], "a");
+    /// assert_eq!(a[&2], "b");
+    /// assert_eq!(a[&3], "d");
+    /// assert_eq!(a[&4], "e");
+    /// assert_eq!(a[&5], "f");
+    /// ```
+    pub fn append(&mut self, other: &mut Self) {
+        if other.len() == 0 {
+            return;
+        }
+
+        if self.len() == 0 {
+            mem::swap(self, other);
+            return;
+        }
+
+        let (mut head, tol_cnt) = {
+            let other_sorted_list = mem::replace(other, OrdMap::new())
+                .into_iter()
+                .into_sorted_list();
+            let self_head = unsafe { avl_node::avl_tree_convert_to_list(&mut self.root) };
+            let other_head = {
+                let mut prev = ptr::null_mut();
+                let mut head = ptr::null_mut();
+                for (k, v) in other_sorted_list {
+                    let node_ptr = self.entry_alloc(k, v).node_ptr();
+                    node_ptr.set_left(prev);
+                    node_ptr.set_right(ptr::null_mut());
+                    if prev.not_null() {
+                        prev.set_right(node_ptr);
+                    } else {
+                        head = node_ptr;
+                    }
+                    prev = node_ptr;
+                }
+                head
+            };
+            unsafe { self.merge_sorted_list(self_head, other_head) }
+        };
+        self.count = tol_cnt;
+        unsafe {
+            self.root.node =
+                self.build_from_sorted_list(&mut head as *mut AVLNodePtr, 0, tol_cnt as isize);
+        }
+    }
+
+    /// Merge two sorted lists into one list. Drop the element of `self_head` if keys collide.
+    unsafe fn merge_sorted_list(
+        &mut self,
+        mut self_head: AVLNodePtr,
+        mut other_head: AVLNodePtr,
+    ) -> (AVLNodePtr, usize) {
+        let mut cnt = 0;
+        let mut head = ptr::null_mut();
+        let mut prev = ptr::null_mut() as AVLNodePtr;
+        while self_head.not_null() || other_head.not_null() {
+            let left_entry = self_head.avl_node_deref_to_entry::<K, V>();
+            let right_entry = other_head.avl_node_deref_to_entry::<K, V>();
+            let res = if self_head.not_null() && other_head.not_null() {
+                (*left_entry.key()).cmp(&*right_entry.key())
+            } else if self_head.not_null() {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            };
+            cnt += 1;
+            let node = match res {
+                Ordering::Less => {
+                    let ret = self_head;
+                    self_head = self_head.right();
+                    ret
+                }
+                Ordering::Greater => {
+                    let ret = other_head;
+                    other_head = other_head.right();
+                    ret
+                }
+                Ordering::Equal => {
+                    let ret = other_head;
+                    self_head = self_head.right();
+                    other_head = other_head.right();
+                    ptr::drop_in_place(left_entry);
+                    self.entry_fastbin.del(left_entry as VoidPtr);
+                    ret
+                }
+            };
+            node.set_left(prev);
+            node.set_right(ptr::null_mut());
+            if prev.is_null() {
+                head = node;
+            } else {
+                prev.set_right(node);
+            }
+            prev = node;
+        }
+        (head, cnt)
+    }
+
+    /// recursive build AVL from a sorted list which does not contain duplicate keys.
+    unsafe fn build_from_sorted_list(
+        &mut self,
+        head: *mut AVLNodePtr,
+        start: isize,
+        end: isize,
+    ) -> AVLNodePtr {
+        if start >= end {
+            return ptr::null_mut();
+        }
+        let mid = start + (end - start) / 2;
+        let left_node = self.build_from_sorted_list(head, start, mid);
+        let parent = *head;
+        *head = (*head).right();
+        let right_node = self.build_from_sorted_list(head, mid + 1, end);
+        parent.set_left(left_node);
+        parent.set_right(right_node);
+        parent.set_parent(ptr::null_mut());
+        parent.height_update();
+        if left_node.not_null() {
+            left_node.set_parent(parent);
+        }
+        if right_node.not_null() {
+            right_node.set_parent(parent);
+        }
+        parent
+    }
+
     /// Gets the given key's corresponding entry in the map for in-place manipulation.
     ///
     /// # Examples
@@ -1329,8 +1478,8 @@ pub struct IntoIter<K, V>
 where
     K: Ord,
 {
+    root: AVLRoot,
     head: AVLNodePtr,
-    tail: AVLNodePtr,
     len: usize,
     entry_fastbin: Fastbin,
     _marker: marker::PhantomData<(K, V)>,
@@ -1340,37 +1489,123 @@ impl<K, V> IntoIter<K, V>
 where
     K: Ord,
 {
-    fn remove(&mut self, node: AVLNodePtr) -> Option<(K, V)> {
-        let parent = node.parent();
-        if parent.not_null() {
-            if parent.left() == node {
-                parent.set_left(ptr::null_mut());
-            } else {
-                parent.set_right(ptr::null_mut())
-            }
+    /// Convert self into `SortedList`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hash_ord::ord_map::OrdMap;
+    ///
+    /// let mut a = OrdMap::new();
+    /// a.insert(1, "a");
+    /// a.insert(2, "b");
+    /// a.insert(3, "c");
+    ///
+    /// let mut sum = 0;
+    /// for (k, _) in a.into_iter().into_sorted_list().iter() {
+    ///     sum += *k;
+    /// }
+    ///
+    /// assert_eq!(sum, 6);
+    /// ```
+    #[inline]
+    pub fn into_sorted_list(mut self) -> SortedList<K, V> {
+        SortedList {
+            head: unsafe { avl_node::avl_tree_convert_to_list(&mut self.root) },
+            len: self.len,
+            entry_fastbin: self.entry_fastbin.move_to(),
+            _marker: marker::PhantomData,
+        }
+    }
+}
+
+/// An owning sorted list converted from a `IntoIter`.
+///
+/// This `struct` is created by the [`into_sorted_list`] method on [`IntoIter`].
+/// See its documentation for more.
+///
+/// [`into_sorted_list`]: struct.IntoIter.html#method.into_sorted_list
+/// [`IntoIter`]: struct.IntoIter.html
+pub struct SortedList<K, V> {
+    head: AVLNodePtr,
+    len: usize,
+    entry_fastbin: Fastbin,
+    _marker: marker::PhantomData<(K, V)>,
+}
+
+/// An iterator over the (key, value) of a `SortedList`.
+///
+/// This `struct` is created by the [`iter`] method on [`SortedList`]. See its
+/// documentation for more.
+///
+/// [`iter`]: struct.SortedList.html#method.iter
+/// [`SortedList`]: struct.SortedList.html
+pub struct SortedListIter<'a, K, V>
+where
+    K: 'a,
+    V: 'a,
+{
+    head: AVLNodePtr,
+    len: usize,
+    _marker: marker::PhantomData<&'a (K, V)>,
+}
+
+impl<K, V> SortedList<K, V> {
+    pub fn iter(&self) -> SortedListIter<K, V> {
+        SortedListIter {
+            head: self.head,
+            len: self.len,
+            _marker: marker::PhantomData,
+        }
+    }
+}
+
+impl<'a, K, V> Iterator for SortedListIter<'a, K, V>
+where
+    K: 'a,
+    V: 'a,
+{
+    type Item = (&'a K, &'a V);
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.len == 0 || self.head.is_null() {
+            return None;
         }
         self.len -= 1;
-        let old_entry = node.avl_node_deref_to_entry::<K, V>();
+        let node = self.head;
+        self.head = self.head.right();
+        Some((node.key_ref::<K, V>(), node.value_ref::<K, V>()))
+    }
+}
+
+/// Implement owning iterator trait over (key, value) of a `SortedList`
+impl<K, V> Iterator for SortedList<K, V> {
+    type Item = (K, V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.len == 0 || self.head.is_null() {
+            return None;
+        }
+        self.len -= 1;
+        let old_entry = self.head.avl_node_deref_to_entry::<K, V>();
+        self.head = self.head.right();
         let res = unsafe { Some((ptr::read(old_entry.key()), ptr::read(old_entry.value()))) };
         self.entry_fastbin.del(old_entry as VoidPtr);
         res
     }
 }
 
-impl<K: Ord, V> Drop for IntoIter<K, V> {
+impl<K, V> Drop for SortedList<K, V> {
     fn drop(&mut self) {
         for (_, _) in self {}
     }
 }
 
-impl<K: Ord, V> DoubleEndedIterator for IntoIter<K, V> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        if self.len == 0 || self.tail.is_null() {
-            return None;
-        }
-        let node = self.tail;
-        self.tail = self.tail.prev();
-        self.remove(node)
+impl<K, V> Drop for IntoIter<K, V>
+where
+    K: Ord,
+{
+    fn drop(&mut self) {
+        for (_, _) in self {}
     }
 }
 
@@ -1381,12 +1616,16 @@ where
     type Item = (K, V);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.len == 0 || self.head.is_null() {
+        if self.len == 0 || self.root.node.is_null() {
             return None;
         }
-        let node = self.head;
-        self.head = self.head.next();
-        self.remove(node)
+        let node =
+            unsafe { avl_node::avl_node_tear(&mut self.root, &mut self.head as *mut AVLNodePtr) };
+        self.len -= 1;
+        let old_entry = node.avl_node_deref_to_entry::<K, V>();
+        let res = unsafe { Some((ptr::read(old_entry.key()), ptr::read(old_entry.value()))) };
+        self.entry_fastbin.del(old_entry as VoidPtr);
+        res
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -1403,24 +1642,16 @@ where
 
     #[inline]
     fn into_iter(mut self) -> IntoIter<K, V> {
-        let iter = if self.root.node.is_null() {
-            IntoIter {
-                head: ptr::null_mut(),
-                tail: ptr::null_mut(),
-                len: 0,
-                entry_fastbin: Default::default(),
-                _marker: marker::PhantomData,
-            }
-        } else {
-            IntoIter {
-                head: self.first_node(),
-                tail: self.last_node(),
-                len: self.len(),
-                entry_fastbin: self.entry_fastbin.move_to(),
-                _marker: marker::PhantomData,
-            }
+        let res = IntoIter {
+            root: self.root,
+            head: ptr::null_mut(),
+            len: self.len(),
+            entry_fastbin: self.entry_fastbin.move_to(),
+            _marker: marker::PhantomData,
         };
-        iter
+        self.root.node = ptr::null_mut();
+        self.count = 0;
+        res
     }
 }
 
@@ -1558,8 +1789,19 @@ pub mod test {
     use std::cell::RefCell;
     use ord_map::Entry::*;
     use std::rc::Rc;
+    use avl_node;
+    use ord_map::AVLEntryOperation;
 
     type DefaultType = OrdMap<i32, Option<i32>>;
+
+    struct Node<'a> {
+        b: &'a RefCell<i32>,
+    }
+    impl<'a> Drop for Node<'a> {
+        fn drop(&mut self) {
+            *self.b.borrow_mut() += 1;
+        }
+    }
 
     #[test]
     fn test_avl_basic() {
@@ -1740,14 +1982,6 @@ pub mod test {
 
     #[test]
     fn test_avl_clear() {
-        struct Node<'a> {
-            b: &'a RefCell<i32>,
-        }
-        impl<'a> Drop for Node<'a> {
-            fn drop(&mut self) {
-                *self.b.borrow_mut() += 1;
-            }
-        }
         let cnt = RefCell::new(0);
         let test_num = 200;
         let mut map = OrdMap::new();
@@ -1800,6 +2034,13 @@ pub mod test {
         assert_eq!(a[&1], 1);
         assert_eq!(a[&2], 2);
         assert_eq!(a[&3], 3);
+
+        let a = default_build_avl(100);
+        let mut s = 0;
+        for (k, _) in a.into_iter() {
+            s += k;
+        }
+        assert_eq!(s, (0..100).sum());
     }
 
     #[test]
@@ -1877,15 +2118,7 @@ pub mod test {
     }
 
     #[test]
-    fn test_memory_leak() {
-        struct Node<'a> {
-            b: &'a RefCell<i32>,
-        }
-        impl<'a> Drop for Node<'a> {
-            fn drop(&mut self) {
-                *self.b.borrow_mut() += 1;
-            }
-        }
+    fn test_avl_memory_leak() {
         let cnt = RefCell::new(0);
         let test_num = 111;
         let mut map = OrdMap::new();
@@ -1905,7 +2138,7 @@ pub mod test {
     }
 
     #[test]
-    fn test_from_iter() {
+    fn test_avl_from_iter() {
         let xs = [(1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6)];
         let map: OrdMap<_, _> = xs.iter().cloned().collect();
         for &(k, v) in &xs {
@@ -1914,7 +2147,7 @@ pub mod test {
     }
 
     #[test]
-    fn test_entry() {
+    fn test_avl_entry() {
         let xs = [(1, 10), (2, 20), (3, 30), (4, 40), (5, 50), (6, 60)];
 
         let mut map: OrdMap<_, _> = xs.iter().cloned().collect();
@@ -1969,5 +2202,62 @@ pub mod test {
             assert_eq!(Rc::strong_count(&old_key), 1);
             assert_eq!(old_value, 15);
         }
+    }
+
+    #[test]
+    fn test_avl_convert_to_list() {
+        let mut t = default_build_avl(100);
+        let mut head = unsafe { avl_node::avl_tree_convert_to_list(&mut t.root) };
+        let mut v = Vec::<i32>::new();
+        while head.not_null() {
+            v.push(unsafe { *head.avl_node_deref_to_entry::<i32, Option<i32>>().key() });
+            head = head.right();
+        }
+        let sum: i32 = v.iter().sum();
+        assert_eq!(sum, (0..100).sum());
+    }
+
+    #[test]
+    fn test_avl_into_sorted_list() {
+        let cnt = RefCell::new(0);
+        let test_num = 100;
+        let mut map = OrdMap::new();
+        for i in 0..test_num {
+            map.insert(i, Node { b: &cnt });
+        }
+        let mut o = Vec::<i32>::new();
+        for (k, _) in map.into_iter().into_sorted_list().iter() {
+            o.push(*k);
+        }
+        assert_eq!(o.len(), test_num as usize);
+        assert_eq!(*cnt.borrow(), test_num);
+        let sum: i32 = o.iter().sum();
+        assert_eq!(sum, (0..test_num).sum());
+    }
+
+    #[test]
+    fn test_avl_append() {
+        let cnt = RefCell::new(0);
+        let test_num = 100 as i32;
+        let mut ma = OrdMap::new();
+        for i in 0..test_num {
+            ma.insert(i, Node { b: &cnt });
+        }
+        let mut mb = OrdMap::new();
+        for i in test_num / 2..test_num * 2 {
+            mb.insert(i, Node { b: &cnt });
+        }
+        assert_eq!(*cnt.borrow(), 0);
+        ma.append(&mut mb);
+        assert!(ma.check_valid());
+        assert!(ma.bst_check());
+        assert!(ma.bst_check_reverse());
+        assert_eq!(ma.len() as i32, test_num * 2);
+        assert_eq!(mb.len(), 0);
+        assert_eq!(*cnt.borrow(), (test_num - test_num / 2));
+        drop(mb);
+        assert_eq!(*cnt.borrow(), (test_num - test_num / 2));
+        drop(ma);
+        assert_eq!(*cnt.borrow(), 2 * test_num + (test_num - test_num / 2));
     }
 }
