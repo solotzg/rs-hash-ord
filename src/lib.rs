@@ -1,5 +1,6 @@
 #![feature(allocator_api)]
 #![allow(dead_code)]
+#![feature(collections_range)]
 
 #[macro_use]
 mod macros;

@@ -7,6 +7,9 @@ use avl_node;
 use fastbin::{Fastbin, VoidPtr};
 use std::borrow::Borrow;
 
+use std::collections::range::RangeArgument;
+use std::collections::Bound::{Excluded, Included, Unbounded};
+
 struct AVLEntry<K, V> {
     node: AVLNode,
     key: K,
@@ -530,10 +533,335 @@ impl<K, V> OrdMap<K, V> {
     }
 }
 
+/// An iterator over a sub-range of entries in a `OrdMap`.
+///
+/// This `struct` is created by the [`range`] method on [`OrdMap`]. See its
+/// documentation for more.
+///
+/// [`range`]: struct.OrdMap.html#method.range
+/// [`OrdMap`]: struct.OrdMap.html
+pub struct Range<'a, K, V>
+where
+    K: 'a,
+    V: 'a,
+{
+    front: AVLNodePtr,
+    back: AVLNodePtr,
+    end: AVLNodePtr,
+    _marker: marker::PhantomData<&'a (K, V)>,
+}
+
+impl<'a, K, V> Range<'a, K, V> {
+    unsafe fn next_unchecked(&mut self) -> (&'a K, &'a V) {
+        let node = self.front;
+        self.front = self.front.next();
+        (node.key_ref::<K, V>(), node.value_ref::<K, V>())
+    }
+
+    unsafe fn next_back_unchecked(&mut self) -> (&'a K, &'a V) {
+        self.back = if self.back.is_null() {
+            self.end
+        } else {
+            self.back.prev()
+        };
+        (self.back.key_ref::<K, V>(), self.back.value_ref::<K, V>())
+    }
+}
+
+impl<'a, K, V> Iterator for Range<'a, K, V> {
+    type Item = (&'a K, &'a V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.front == self.back {
+            None
+        } else {
+            unsafe { Some(self.next_unchecked()) }
+        }
+    }
+}
+
+impl<'a, K, V> Clone for Range<'a, K, V> {
+    fn clone(&self) -> Range<'a, K, V> {
+        Range {
+            front: self.front,
+            back: self.back,
+            end: self.end,
+            _marker: marker::PhantomData,
+        }
+    }
+}
+
+impl<'a, K, V> DoubleEndedIterator for Range<'a, K, V> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.front == self.back {
+            None
+        } else {
+            unsafe { Some(self.next_back_unchecked()) }
+        }
+    }
+}
+
+/// A mutable iterator over a sub-range of entries in a `OrdMap`.
+///
+/// This `struct` is created by the [`range_mut`] method on [`OrdMap`]. See its
+/// documentation for more.
+///
+/// [`range_mut`]: struct.OrdMap.html#method.range_mut
+/// [`OrdMap`]: struct.OrdMap.html
+pub struct RangeMut<'a, K, V>
+where
+    K: 'a,
+    V: 'a,
+{
+    front: AVLNodePtr,
+    back: AVLNodePtr,
+    end: AVLNodePtr,
+    _marker: marker::PhantomData<&'a mut (K, V)>,
+}
+
+impl<'a, K, V> RangeMut<'a, K, V> {
+    unsafe fn next_unchecked(&mut self) -> (&'a K, &'a mut V) {
+        let node = self.front;
+        self.front = self.front.next();
+        (node.key_ref::<K, V>(), node.value_mut::<K, V>())
+    }
+
+    unsafe fn next_back_unchecked(&mut self) -> (&'a K, &'a mut V) {
+        self.back = if self.back.is_null() {
+            self.end
+        } else {
+            self.back.prev()
+        };
+        (self.back.key_ref::<K, V>(), self.back.value_mut::<K, V>())
+    }
+}
+
+impl<'a, K, V> Iterator for RangeMut<'a, K, V> {
+    type Item = (&'a K, &'a mut V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.front == self.back {
+            None
+        } else {
+            unsafe { Some(self.next_unchecked()) }
+        }
+    }
+}
+
+impl<'a, K, V> Clone for RangeMut<'a, K, V> {
+    fn clone(&self) -> RangeMut<'a, K, V> {
+        RangeMut {
+            front: self.front,
+            back: self.back,
+            end: self.end,
+            _marker: marker::PhantomData,
+        }
+    }
+}
+
+impl<'a, K, V> DoubleEndedIterator for RangeMut<'a, K, V> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.front == self.back {
+            None
+        } else {
+            unsafe { Some(self.next_back_unchecked()) }
+        }
+    }
+}
+
 impl<K, V> OrdMap<K, V>
 where
     K: Ord,
 {
+    /// Splits the collection into two at the given key. Returns everything after the given key,
+    /// including the key.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```
+    /// use hash_ord::ord_map::OrdMap;
+    ///
+    /// let mut a = OrdMap::new();
+    /// a.insert(1, "a");
+    /// a.insert(2, "b");
+    /// a.insert(3, "c");
+    /// a.insert(17, "d");
+    /// a.insert(41, "e");
+    ///
+    /// let b = a.split_off(&3);
+    ///
+    /// assert_eq!(a.len(), 2);
+    /// assert_eq!(b.len(), 3);
+    ///
+    /// assert_eq!(a[&1], "a");
+    /// assert_eq!(a[&2], "b");
+    ///
+    /// assert_eq!(b[&3], "c");
+    /// assert_eq!(b[&17], "d");
+    /// assert_eq!(b[&41], "e");
+    /// ```
+    pub fn split_off<Q: ?Sized + Ord>(&mut self, key: &Q) -> Self
+    where
+        K: Borrow<Q>,
+    {
+        if self.is_empty() {
+            return Self::new();
+        }
+        let tol_cnt = self.len();
+        let mut other_map = Self::new();
+        let split_node = self.lower_bound_find_node(key);
+        let self_head = unsafe { avl_node::avl_tree_convert_to_list(&mut self.root) };
+        let (other_head, other_cnt) = unsafe {
+            let mut cnt = 0;
+            let mut node = split_node;
+            let mut prev = ptr::null_mut();
+            let mut head = ptr::null_mut();
+            while node.not_null() {
+                let entry = node.avl_node_deref_to_entry::<K, V>();
+                let other_entry = other_map.entry_fastbin.alloc() as *mut AVLEntry<K, V>;
+                ptr::copy_nonoverlapping(entry, other_entry, 1);
+                self.entry_fastbin.del(entry as VoidPtr);
+                let other_avl_node = other_entry.node_ptr();
+                other_avl_node.set_left(prev);
+                other_avl_node.set_right(ptr::null_mut());
+                cnt += 1;
+                if prev.not_null() {
+                    prev.set_right(other_avl_node);
+                } else {
+                    head = other_avl_node;
+                }
+                prev = other_avl_node;
+                node = node.right();
+            }
+            (head, cnt)
+        };
+        other_map.inner_init_from_sorted_list(other_head, other_cnt);
+        self.inner_init_from_sorted_list(self_head, tol_cnt - other_cnt);
+        other_map
+    }
+
+    fn inner_range<T: ?Sized, R>(&self, range: R) -> (AVLNodePtr, AVLNodePtr, AVLNodePtr)
+    where
+        T: Ord,
+        K: Borrow<T>,
+        R: RangeArgument<T>,
+    {
+        match (range.start(), range.end()) {
+            (Excluded(s), Excluded(e)) if s == e => {
+                panic!("range start and end are equal and excluded in OrdMap")
+            }
+            (Included(s), Included(e))
+            | (Included(s), Excluded(e))
+            | (Excluded(s), Included(e))
+            | (Excluded(s), Excluded(e)) if s > e =>
+            {
+                panic!("range start is greater than range end in OrdMap")
+            }
+            _ => {}
+        };
+        let front = match range.start() {
+            Included(s) => self.lower_bound_find_node(&s),
+            Excluded(s) => self.upper_bound_find_node(&s),
+            Unbounded => self.first_node(),
+        };
+        let back = match range.end() {
+            Included(s) => self.upper_bound_find_node(&s),
+            Excluded(s) => self.lower_bound_find_node(&s),
+            Unbounded => ptr::null_mut(),
+        };
+        (front, back, self.last_node())
+    }
+
+    /// Constructs a double-ended iterator over a sub-range of elements in the map.
+    /// The simplest way is to use the range syntax `min..max`, thus `range(min..max)` will
+    /// yield elements from min (inclusive) to max (exclusive).
+    /// The range may also be entered as `(Bound<T>, Bound<T>)`, so for example
+    /// `range((Excluded(4), Included(10)))` will yield a left-exclusive, right-inclusive
+    /// range from 4 to 10.
+    ///
+    /// # Panics
+    ///
+    /// Panics if range `start > end`.
+    /// Panics if range `start == end` and both bounds are `Excluded`.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```
+    /// use hash_ord::ord_map::OrdMap;
+    /// use std::collections::Bound::Included;
+    ///
+    /// let mut map = OrdMap::new();
+    /// map.insert(3, "a");
+    /// map.insert(5, "b");
+    /// map.insert(8, "c");
+    /// for (&key, &value) in map.range((Included(&4), Included(&8))) {
+    ///     println!("{}: {}", key, value);
+    /// }
+    /// assert_eq!(Some((&5, &"b")), map.range(4..).next());
+    /// ```
+    pub fn range<T: ?Sized, R>(&self, range: R) -> Range<K, V>
+    where
+        T: Ord,
+        K: Borrow<T>,
+        R: RangeArgument<T>,
+    {
+        let (front, back, end) = self.inner_range(range);
+        Range {
+            front,
+            back,
+            end,
+            _marker: marker::PhantomData,
+        }
+    }
+
+    /// Constructs a mutable double-ended iterator over a sub-range of elements in the map.
+    /// The simplest way is to use the range syntax `min..max`, thus `range(min..max)` will
+    /// yield elements from min (inclusive) to max (exclusive).
+    /// The range may also be entered as `(Bound<T>, Bound<T>)`, so for example
+    /// `range((Excluded(4), Included(10)))` will yield a left-exclusive, right-inclusive
+    /// range from 4 to 10.
+    ///
+    /// # Panics
+    ///
+    /// Panics if range `start > end`.
+    /// Panics if range `start == end` and both bounds are `Excluded`.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```
+    /// use hash_ord::ord_map::OrdMap;
+    ///
+    /// let mut map: OrdMap<&str, i32> = ["Alice", "Bob", "Carol", "Cheryl"].iter()
+    ///                                                                       .map(|&s| (s, 0))
+    ///                                                                       .collect();
+    /// for (_, balance) in map.range_mut("B".."Cheryl") {
+    ///     *balance += 100;
+    /// }
+    /// for (name, balance) in &map {
+    ///     println!("{} => {}", name, balance);
+    /// }
+    /// ```
+    pub fn range_mut<T: ?Sized, R>(&mut self, range: R) -> RangeMut<K, V>
+    where
+        T: Ord,
+        K: Borrow<T>,
+        R: RangeArgument<T>,
+    {
+        let (front, back, end) = self.inner_range(range);
+        RangeMut {
+            front,
+            back,
+            end,
+            _marker: marker::PhantomData,
+        }
+    }
+
     /// Moves all elements from `other` into `Self`, leaving `other` empty.
     /// O(n) time complexity
     ///
@@ -573,7 +901,7 @@ where
             return;
         }
 
-        let (mut head, tol_cnt) = {
+        let (head, tol_cnt) = {
             let other_sorted_list = mem::replace(other, OrdMap::new())
                 .into_iter()
                 .into_sorted_list();
@@ -596,11 +924,7 @@ where
             };
             unsafe { self.merge_sorted_list(self_head, other_head) }
         };
-        self.count = tol_cnt;
-        unsafe {
-            self.root.node =
-                self.build_from_sorted_list(&mut head as *mut AVLNodePtr, 0, tol_cnt as isize);
-        }
+        self.inner_init_from_sorted_list(head, tol_cnt);
     }
 
     /// Merge two sorted lists into one list. Drop the element of `self_head` if keys collide.
@@ -656,7 +980,18 @@ where
     }
 
     /// recursive build AVL from a sorted list which does not contain duplicate keys.
-    unsafe fn build_from_sorted_list(
+    fn inner_init_from_sorted_list(&mut self, mut head: AVLNodePtr, count: usize) {
+        self.count = count;
+        unsafe {
+            self.root.node = self.recursive_build_from_sorted_list(
+                &mut head as *mut AVLNodePtr,
+                0,
+                count as isize,
+            );
+        }
+    }
+
+    unsafe fn recursive_build_from_sorted_list(
         &mut self,
         head: *mut AVLNodePtr,
         start: isize,
@@ -666,10 +1001,10 @@ where
             return ptr::null_mut();
         }
         let mid = start + (end - start) / 2;
-        let left_node = self.build_from_sorted_list(head, start, mid);
+        let left_node = self.recursive_build_from_sorted_list(head, start, mid);
         let parent = *head;
         *head = (*head).right();
-        let right_node = self.build_from_sorted_list(head, mid + 1, end);
+        let right_node = self.recursive_build_from_sorted_list(head, mid + 1, end);
         parent.set_left(left_node);
         parent.set_right(right_node);
         parent.set_parent(ptr::null_mut());
@@ -897,6 +1232,56 @@ where
         ptr::null_mut()
     }
 
+    #[inline]
+    fn lower_bound_find_node<Q: ?Sized>(&self, q: &Q) -> AVLNodePtr
+    where
+        K: Borrow<Q>,
+        Q: Ord,
+    {
+        let mut node = self.root.node;
+        let mut res = ptr::null_mut();
+        while node.not_null() {
+            match q.cmp(node.key_ref::<K, V>().borrow()) {
+                Ordering::Equal => {
+                    return node;
+                }
+                Ordering::Less => {
+                    res = node;
+                    node = node.left();
+                }
+                Ordering::Greater => {
+                    node = node.right();
+                }
+            }
+        }
+        res
+    }
+
+    #[inline]
+    fn upper_bound_find_node<Q: ?Sized>(&self, q: &Q) -> AVLNodePtr
+    where
+        K: Borrow<Q>,
+        Q: Ord,
+    {
+        let mut node = self.root.node;
+        let mut res = ptr::null_mut();
+        while node.not_null() {
+            match q.cmp(node.key_ref::<K, V>().borrow()) {
+                Ordering::Equal => {
+                    node = node.right();
+                }
+                Ordering::Less => {
+                    res = node;
+                    node = node.left();
+                }
+                Ordering::Greater => {
+                    node = node.right();
+                }
+            }
+        }
+        res
+    }
+
     /// Return true if two tree are isomorphic.
     #[inline]
     pub fn isomorphic(&self, other: &OrdMap<K, V>) -> bool {
@@ -906,9 +1291,14 @@ where
         self.root.node.isomorphic(other.root.node)
     }
 
-    /// Return true if tree is valid.
-    pub fn check_valid(&self) -> bool {
+    /// Return true if tree is balanced.
+    pub fn check_balanced(&self) -> bool {
         self.root.node.check_valid()
+    }
+
+    /// Return true if tree is a BST.
+    pub fn check_ord_valid(&self) -> bool {
+        self.bst_check() && self.bst_check_reverse()
     }
 
     fn bst_check(&self) -> bool {
@@ -1779,29 +2169,17 @@ impl<'a, K: Ord + 'a, V: 'a> DoubleEndedIterator for IterMut<'a, K, V> {
 }
 
 #[cfg(test)]
-pub mod test {
+mod test {
     extern crate rand;
 
     use ord_map::OrdMap;
     use std::cmp::Ordering;
     use ord_map::AVLTreeNodeOperation;
     use avl_node::AVLNodePtrBase;
-    use std::cell::RefCell;
-    use ord_map::Entry::*;
-    use std::rc::Rc;
     use avl_node;
     use ord_map::AVLEntryOperation;
 
     type DefaultType = OrdMap<i32, Option<i32>>;
-
-    struct Node<'a> {
-        b: &'a RefCell<i32>,
-    }
-    impl<'a> Drop for Node<'a> {
-        fn drop(&mut self) {
-            *self.b.borrow_mut() += 1;
-        }
-    }
 
     #[test]
     fn test_avl_basic() {
@@ -1824,28 +2202,6 @@ pub mod test {
             assert_eq!(t.root.node.height(), 2);
             assert_eq!(*t.root.node.left().key_ref::<i32, Option<i32>>(), 1);
         }
-    }
-
-    #[test]
-    fn test_avl_erase() {
-        let test_num = 100usize;
-        let mut t = default_build_avl(test_num);
-        assert!(t.bst_check());
-        assert!(t.bst_check_reverse());
-        for _ in 0..60 {
-            let x = (rand::random::<usize>() % test_num) as i32;
-            match t.remove(&x) {
-                None => {}
-                Some((k, v)) => {
-                    assert_eq!(v.unwrap(), -x);
-                    assert_eq!(k, x);
-                }
-            }
-            assert!(t.find_node(&x).is_null());
-        }
-        assert!(t.bst_check());
-        assert!(t.bst_check_reverse());
-        assert!(t.check_valid());
     }
 
     #[test]
@@ -1931,15 +2287,6 @@ pub mod test {
         }
     }
 
-    #[test]
-    fn test_avl_find() {
-        let t = default_build_avl(1000);
-        for num in 0..t.len() {
-            let x = num as i32;
-            assert_eq!(*t.get(&x).unwrap(), Some(-x));
-        }
-    }
-
     pub fn default_make_avl_element(n: usize) -> Vec<i32> {
         let mut v = vec![0i32; n];
         for idx in 0..v.len() {
@@ -1975,233 +2322,8 @@ pub mod test {
         let right = t.root.node.right();
         assert_eq!(right.height(), 9);
 
-        assert!(t.bst_check());
-        assert!(t.bst_check_reverse());
-        assert!(t.check_valid());
-    }
-
-    #[test]
-    fn test_avl_clear() {
-        let cnt = RefCell::new(0);
-        let test_num = 200;
-        let mut map = OrdMap::new();
-        for i in 0..test_num {
-            map.insert(i, Node { b: &cnt });
-        }
-        assert_eq!(*cnt.borrow(), 0);
-        map.clear();
-        assert_eq!(*cnt.borrow(), test_num);
-    }
-
-    #[test]
-    fn test_avl_clone_eq() {
-        let test_num = 100usize;
-        let ta = default_build_avl(test_num);
-        let tb = ta.clone();
-        assert!(ta.isomorphic(&tb));
-        assert!(ta == tb);
-
-        let ta = OrdMap::<i32, i32>::new();
-        let tb = OrdMap::<i32, i32>::new();
-        assert!(ta.isomorphic(&tb));
-        assert!(ta == tb);
-    }
-
-    #[test]
-    fn test_avl_iteration() {
-        let v = default_make_avl_element(100);
-        let mut t = OrdMap::new();
-        for x in &v {
-            t.insert(*x, -*x);
-        }
-        let mut u = 0;
-        for (k, v) in t.iter_mut() {
-            assert_eq!(*k, u);
-            assert_eq!(*v, -u);
-            u += 1;
-        }
-    }
-
-    #[test]
-    fn test_avl_extend_iter() {
-        let mut a = OrdMap::new();
-        a.insert(2, 2);
-        let mut b = OrdMap::new();
-        b.insert(1, 1);
-        b.insert(3, 3);
-        a.extend(b.into_iter());
-        assert_eq!(a.len(), 3);
-        assert_eq!(a[&1], 1);
-        assert_eq!(a[&2], 2);
-        assert_eq!(a[&3], 3);
-
-        let a = default_build_avl(100);
-        let mut s = 0;
-        for (k, _) in a.into_iter() {
-            s += k;
-        }
-        assert_eq!(s, (0..100).sum());
-    }
-
-    #[test]
-    fn test_avl_keys() {
-        let mut v = default_make_avl_element(100);
-        let mut t = OrdMap::new();
-        for x in &v {
-            t.insert(*x, -*x);
-        }
-        let keys: Vec<_> = t.keys().collect();
-        v.sort();
-        assert_eq!(v.len(), keys.len());
-        for i in 0..v.len() {
-            assert_eq!(v[i], *keys[i]);
-        }
-    }
-
-    #[test]
-    fn test_avl_values_index() {
-        let mut v = default_make_avl_element(100);
-        let mut t = OrdMap::new();
-        for x in &v {
-            t.insert(*x, -*x);
-        }
-        let values: Vec<_> = t.values().collect();
-        v.sort();
-        assert_eq!(values.len(), v.len());
-        for i in 0..v.len() {
-            assert_eq!(-v[i], *values[i]);
-        }
-    }
-
-    #[test]
-    fn test_avl_cursors() {
-        let mut t = default_build_avl(100);
-        {
-            let mut cursors = t.find_cursors(&50);
-            assert_eq!(*cursors.get().unwrap().0, 50);
-            for _ in 0..10 {
-                cursors.next();
-            }
-            assert_eq!(*cursors.get().unwrap().0, 60);
-            for _ in 0..5 {
-                cursors.prev();
-            }
-            assert_eq!(*cursors.get().unwrap().0, 55);
-            let x = cursors.erase_then_next();
-
-            assert!(x.is_some());
-            assert_eq!(x.unwrap().0, 55);
-
-            assert_eq!(*cursors.get().unwrap().0, 56);
-            cursors.prev();
-            assert_eq!(*cursors.get().unwrap().0, 54);
-
-            let x = cursors.erase_then_prev();
-
-            assert!(x.is_some());
-            assert_eq!(x.unwrap().0, 54);
-
-            assert_eq!(*cursors.get().unwrap().0, 53);
-            cursors.next();
-            assert_eq!(*cursors.get().unwrap().0, 56);
-
-            *cursors.get_mut().unwrap().1 = None;
-            assert_eq!(*cursors.get().unwrap().1, None);
-
-            cursors.erase_then_prev();
-        }
-        assert_eq!(t.len(), 97);
-        {
-            let cursors = t.find_cursors(&55);
-            assert!(cursors.get().is_none());
-        }
-    }
-
-    #[test]
-    fn test_avl_memory_leak() {
-        let cnt = RefCell::new(0);
-        let test_num = 111;
-        let mut map = OrdMap::new();
-        for i in 0..test_num {
-            map.insert(i, Node { b: &cnt });
-        }
-        for i in 0..test_num / 2 {
-            map.remove(&i);
-        }
-        assert_eq!(*cnt.borrow(), test_num / 2);
-        for i in test_num / 2..test_num {
-            map.insert(i, Node { b: &cnt });
-        }
-        assert_eq!(*cnt.borrow(), test_num);
-        map.clear();
-        assert_eq!(*cnt.borrow(), test_num * 2 - test_num / 2);
-    }
-
-    #[test]
-    fn test_avl_from_iter() {
-        let xs = [(1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6)];
-        let map: OrdMap<_, _> = xs.iter().cloned().collect();
-        for &(k, v) in &xs {
-            assert_eq!(map.get(&k), Some(&v));
-        }
-    }
-
-    #[test]
-    fn test_avl_entry() {
-        let xs = [(1, 10), (2, 20), (3, 30), (4, 40), (5, 50), (6, 60)];
-
-        let mut map: OrdMap<_, _> = xs.iter().cloned().collect();
-
-        match map.entry(1) {
-            Vacant(_) => unreachable!(),
-            Occupied(mut view) => {
-                assert_eq!(view.get(), &10);
-                assert_eq!(view.insert(100), 10);
-            }
-        }
-        assert_eq!(map.get(&1).unwrap(), &100);
-        assert_eq!(map.len(), 6);
-
-        match map.entry(2) {
-            Vacant(_) => unreachable!(),
-            Occupied(mut view) => {
-                let v = view.get_mut();
-                let new_v = (*v) * 10;
-                *v = new_v;
-            }
-        }
-        assert_eq!(map.get(&2).unwrap(), &200);
-        assert_eq!(map.len(), 6);
-
-        match map.entry(3) {
-            Vacant(_) => unreachable!(),
-            Occupied(view) => {
-                assert_eq!(view.remove(), 30);
-            }
-        }
-        assert_eq!(map.get(&3), None);
-        assert_eq!(map.len(), 5);
-
-        match map.entry(10) {
-            Occupied(_) => unreachable!(),
-            Vacant(view) => {
-                assert_eq!(*view.insert(1000), 1000);
-            }
-        }
-        assert_eq!(map.get(&10).unwrap(), &1000);
-        assert_eq!(map.len(), 6);
-
-        let mut map: OrdMap<Rc<String>, u32> = OrdMap::new();
-        map.insert(Rc::new("Stringthing".to_string()), 15);
-
-        let my_key = Rc::new("Stringthing".to_string());
-
-        if let Occupied(entry) = map.entry(my_key) {
-            // Also replace the key with a handle to our other key.
-            let (old_key, old_value): (Rc<String>, u32) = entry.replace_entry(16);
-            assert_eq!(Rc::strong_count(&old_key), 1);
-            assert_eq!(old_value, 15);
-        }
+        assert!(t.check_ord_valid());
+        assert!(t.check_balanced());
     }
 
     #[test]
@@ -2215,49 +2337,5 @@ pub mod test {
         }
         let sum: i32 = v.iter().sum();
         assert_eq!(sum, (0..100).sum());
-    }
-
-    #[test]
-    fn test_avl_into_sorted_list() {
-        let cnt = RefCell::new(0);
-        let test_num = 100;
-        let mut map = OrdMap::new();
-        for i in 0..test_num {
-            map.insert(i, Node { b: &cnt });
-        }
-        let mut o = Vec::<i32>::new();
-        for (k, _) in map.into_iter().into_sorted_list().iter() {
-            o.push(*k);
-        }
-        assert_eq!(o.len(), test_num as usize);
-        assert_eq!(*cnt.borrow(), test_num);
-        let sum: i32 = o.iter().sum();
-        assert_eq!(sum, (0..test_num).sum());
-    }
-
-    #[test]
-    fn test_avl_append() {
-        let cnt = RefCell::new(0);
-        let test_num = 100 as i32;
-        let mut ma = OrdMap::new();
-        for i in 0..test_num {
-            ma.insert(i, Node { b: &cnt });
-        }
-        let mut mb = OrdMap::new();
-        for i in test_num / 2..test_num * 2 {
-            mb.insert(i, Node { b: &cnt });
-        }
-        assert_eq!(*cnt.borrow(), 0);
-        ma.append(&mut mb);
-        assert!(ma.check_valid());
-        assert!(ma.bst_check());
-        assert!(ma.bst_check_reverse());
-        assert_eq!(ma.len() as i32, test_num * 2);
-        assert_eq!(mb.len(), 0);
-        assert_eq!(*cnt.borrow(), (test_num - test_num / 2));
-        drop(mb);
-        assert_eq!(*cnt.borrow(), (test_num - test_num / 2));
-        drop(ma);
-        assert_eq!(*cnt.borrow(), 2 * test_num + (test_num - test_num / 2));
     }
 }

@@ -17,7 +17,7 @@ fn run(n: usize) {
     let duration = end - start;
     println!("size {}", t.len());
     println!("build time {} ", duration);
-    assert!(t.check_valid());
+    assert!(t.check_balanced());
     let mut count = 0;
     let start = time::now();
     for d in 0..n {
