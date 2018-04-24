@@ -1,8 +1,9 @@
+extern crate fnv;
+
 use fastbin::{Fastbin, VoidPtr};
 use hash_table::{HashIndexPtrOperation, HashNode, HashNodeOperation, HashNodePtrOperation,
                  HashTable, HashUint};
 use hash_table;
-use std::collections::hash_map::RandomState;
 use std::hash::BuildHasher;
 use std::hash::Hash;
 use std::{mem, ptr};
@@ -12,6 +13,7 @@ use avl_node;
 use std::ops::Index;
 use std::borrow::Borrow;
 use std::iter::FromIterator;
+use self::fnv::FnvBuildHasher as RandomState;
 
 /// A hash map which uses AVL to resolve collision.
 ///

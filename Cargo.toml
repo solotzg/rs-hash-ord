@@ -11,3 +11,6 @@ keywords = ["HashMap", "AVL", "OrdMap"]
 [dev-dependencies]
 rand = "0.4.2"
 time = "0.1.39"
+
+[dependencies]
+fnv = "1.0.6"

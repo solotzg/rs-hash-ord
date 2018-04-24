@@ -6,6 +6,7 @@
 `Fastbin` is implemented to reduce the cost of memory allocation.
 * `insert` and `remove` operations are optimized by selectively skipping `AVL Rebalance`, because under 95% of indexes, 
 there are less than 3 nodes.
+* Since `SipHash` is not good at performance, `FnvBuildHasher` is used as the default `BuildHasher`.
 * The whole structure of HashMap is like:
 ```
  HashMap:

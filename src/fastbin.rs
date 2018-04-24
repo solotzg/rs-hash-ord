@@ -1,5 +1,6 @@
-use std::heap::{Alloc, Heap, Layout};
+use std::alloc::{Alloc, Global, Layout};
 use std::{cmp, mem};
+use std::ptr::NonNull;
 
 pub type VoidPtr = *mut u8;
 
@@ -159,8 +160,8 @@ impl FastbinPtrOperation for *mut Fastbin {
             let page_size = get_page_size(page);
             self.set_pages(next);
             unsafe {
-                Heap.dealloc(
-                    page,
+                Global.dealloc(
+                    NonNull::new_unchecked(page).as_opaque(),
                     Layout::from_size_align_unchecked(page_size, self.align()),
                 );
             }
@@ -180,10 +181,14 @@ impl FastbinPtrOperation for *mut Fastbin {
             return obj;
         }
         if self.start().offset(obj_size) > self.end() {
-            let page = Heap.alloc(Layout::from_size_align_unchecked(
-                self.page_size(),
-                self.align(),
-            )).unwrap_or_else(|e| Heap.oom(e));
+            let page = Global
+                .alloc(Layout::from_size_align_unchecked(
+                    self.page_size(),
+                    self.align(),
+                ))
+                .unwrap_or_else(|_| Global.oom())
+                .cast()
+                .as_ptr();
             let mut line_ptr = page;
             set_page_next(page, self.pages());
             set_page_size(page, self.page_size());
