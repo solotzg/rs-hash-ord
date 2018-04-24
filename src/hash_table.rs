@@ -288,9 +288,9 @@ where
     }
 
     #[inline]
-    pub fn rehash(&mut self, capacity: usize) {
+    pub fn rehash(&mut self, len: usize) {
         let old_index_size = self.index_size;
-        let limit = calc_limit(capacity);
+        let limit = calc_limit(len);
         if old_index_size >= limit {
             return;
         }
@@ -315,12 +315,6 @@ where
                 );
             }
         }
-    }
-
-    #[inline]
-    pub fn default_rehash(&mut self) {
-        let cap = self.count;
-        self.rehash(cap);
     }
 
     pub fn new_with_box() -> Box<Self> {

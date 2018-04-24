@@ -41,17 +41,11 @@ impl<K, V, S> HashMap<K, V, S> where K: Ord + Hash, S: BuildHasher
 impl<K, V> OrdMap<K, V> where K: Ord
 ```
 # Performance Test
-## Environment
-```
-Linux version 4.4.0-1049-aws (buildd@lcy01-amd64-001) (gcc version 5.4.0 20160609 (Ubuntu 5.4.0-6ubuntu1~16.04.5) )
-Intel(R) Xeon(R) CPU E5-2676 v3 @ 2.40GHz
-```
 ## AVL Compare with RBTree
 ```
 cargo run --release --example avl_cmp_rbtree
 ```
-* Obviously, optimized AVL is not worse than RBTree, and with the advantage of smaller height, it works better in searching case.
-It performs much better in clear case benefit from `Fastbin`
+* Obviously, optimized AVL is not worse than RBTree, and with the advantage of smaller height and `Fastbin`, it performs better.
 ```
 avl tree
 size 1000000
@@ -92,65 +86,48 @@ clear time PT0.505872813S
 --------------------------------------------
 ```
 ## HashMap Competition
-Run command
-```
-cargo run --release --example hash_map_cmp_string
-```
-* If the type of key is `String`, ours performs better in case of `insert` and `search`, Because Fastbin makes rehashing
-run faster and comparable hash node helps to reduce search time.
-```
-test hash avl map
-insert time PT0.264062182S
-max node num of single index: 7
-find 1000000, time PT0.232942470S
-remove time PT0.303657020S
+* Because the operations of `String` themselves take too much time, we just show the competition with key `usize`.
 
-test stl hash map
-insert time PT0.382943597S
-find 1000000, time PT0.254504066S
-remove time PT0.297953633S
---------------------------------
-
-test hash avl map
-insert time PT1.623697494S
-max node num of single index: 8
-find 5000000, time PT1.374587816S
-remove time PT1.712209458S
-
-test stl hash map
-insert time PT2.146439362S
-find 5000000, time PT1.494242541S
-remove time PT1.613802131S
---------------------------------
-```
-* However, if type is usize|isize|f32... , which means the cost of key comparing and memory copying are low, then 
-STL HashMap sometimes performs better in case of `insert` and `remove`.
+Run command: 
 ```
 cargo run --release --example hash_map_cmp_usize
 ```
+Our implement performs much better, especially in the case of `searching`.
 ```
 test hash avl map
-insert time PT0.134678145S
-max node num of single index: 8
-find 1000000, time PT0.118454962S
-remove time PT0.126796283S
+insert time PT0.111996300S
+max node num of single index: 1
+find 1000000, time PT0.042600200S
+remove time PT0.108599100S
 
 test stl hash map
-insert time PT0.126203898S
-find 1000000, time PT0.099042480S
-remove time PT0.104399187S
+insert time PT0.141726400S
+find 1000000, time PT0.117749600S
+remove time PT0.139572800S
 --------------------------------
 
 test hash avl map
-insert time PT0.996003799S
-max node num of single index: 8
-find 5000000, time PT0.774285169S
-remove time PT0.836908472S
+insert time PT0.661286300S
+max node num of single index: 2
+find 5000000, time PT0.251113S
+remove time PT0.638360800S
 
 test stl hash map
-insert time PT0.982269496S
-find 5000000, time PT0.868572380S
-remove time PT0.835186910S
+insert time PT0.746569600S
+find 5000000, time PT0.647037200S
+remove time PT0.828150S
+--------------------------------
+
+test hash avl map
+insert time PT1.385713200S
+max node num of single index: 2
+find 10000000, time PT0.521490300S
+remove time PT1.368300300S
+
+test stl hash map
+insert time PT1.632164300S
+find 10000000, time PT1.426744300S
+remove time PT1.703507200S
 --------------------------------
 ```
 * When facing Collision Attack, the runtime complexity of STL HashMap can be _O(n^2)_, but ours is _O(n log n)_.

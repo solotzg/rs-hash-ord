@@ -886,7 +886,8 @@ where
         avl_node::link_node(new_node.avl_node_ptr(), self.parent, self.link);
         avl_node::node_post_insert(new_node.avl_node_ptr(), index.avl_root_ptr());
         self.hash_map_mut.hash_table.inc_count(1);
-        self.hash_map_mut.hash_table.default_rehash();
+        let new_len = self.hash_map_mut.len();
+        self.hash_map_mut.rehash(new_len);
         &mut *new_entry.value()
     }
 
@@ -1381,8 +1382,8 @@ where
     }
 
     #[inline]
-    fn rehash(&mut self, capacity: usize) {
-        self.hash_table.rehash(capacity);
+    fn rehash(&mut self, len: usize) {
+        self.hash_table.rehash(len);
     }
 
     /// Reserves capacity for at least `additional` more elements to be inserted
@@ -1397,8 +1398,20 @@ where
     /// let mut map: HashMap<&str, isize> = HashMap::new();
     /// map.reserve(10);
     /// ```
-    pub fn reserve(&mut self, capacity: usize) {
-        self.rehash(capacity);
+    pub fn reserve(&mut self, additional: usize) {
+        self.try_reserve(additional);
+    }
+
+    pub fn try_reserve(&mut self, additional: usize) {
+        let remaining = self.capacity() - self.len();
+        if remaining < additional {
+            match self.len().checked_add(additional) {
+                None => panic!("capacity overflow"),
+                Some(min_cap) => self.rehash(min_cap),
+            };
+        }
+        // we use BST to restore concrete data, so there is no need to do
+        // any thing if capacity is equal to len
     }
 
     /// Returns true if the map contains a value for the specified key.
@@ -1447,6 +1460,7 @@ where
     /// ```
     #[inline]
     pub fn insert(&mut self, key: K, value: V) -> Option<(K, V)> {
+        self.reserve(1);
         let hash_value = self.make_hash(&key);
         let kv_ptr = self.kv_alloc(key, value);
         let new_entry = unsafe {
@@ -1457,7 +1471,6 @@ where
             )
         };
         let old_entry = unsafe { hash_table_update(self.hash_table.as_mut(), new_entry) };
-        self.hash_table.default_rehash();
         if old_entry.is_null() {
             None
         } else {
@@ -1527,7 +1540,7 @@ where
             hash_table: hash_table::HashTable::new_with_box(),
             hash_builder,
         };
-        hash_map.rehash(capacity);
+        hash_map.reserve(capacity);
         hash_map
     }
 
@@ -1549,12 +1562,17 @@ where
     /// ```
     pub fn shrink_to_fit(&mut self) {
         let limit = hash_table::calc_limit(self.len());
-        let old_index_size = self.hash_table.index_size();
-        let mut new_index_size = old_index_size;
-        while new_index_size / 2 >= limit {
-            new_index_size /= 2;
-        }
-        if new_index_size >= old_index_size {
+        let old_cap = self.capacity();
+        let new_cap = {
+            let mut tmp = old_cap / 2;
+            let mut res = old_cap;
+            while tmp >= limit {
+                res = tmp;
+                tmp /= 2;
+            }
+            res
+        };
+        if new_cap >= old_cap {
             return;
         }
         let mut new_entry_fastbin = Fastbin::new(mem::size_of::<InternalHashEntry<K, V>>());
@@ -1618,7 +1636,7 @@ where
     #[inline]
     pub fn with_capacity(capacity: usize) -> HashMap<K, V, RandomState> {
         let mut hash_map = HashMap::<K, V, RandomState>::default();
-        hash_map.rehash(capacity);
+        hash_map.reserve(capacity);
         hash_map
     }
 }

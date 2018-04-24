@@ -4,19 +4,6 @@ extern crate time;
 
 use hash_ord::hash_map;
 use std::collections::HashMap as STLHashMap;
-use std::hash::BuildHasher;
-use std::collections::hash_map::DefaultHasher;
-
-struct State {}
-
-impl BuildHasher for State {
-    type Hasher = DefaultHasher;
-    #[inline]
-    #[allow(deprecated)]
-    fn build_hasher(&self) -> DefaultHasher {
-        Default::default()
-    }
-}
 
 pub fn default_make_avl_element(n: usize) -> Vec<usize> {
     let mut v = vec![0usize; n];
@@ -29,7 +16,7 @@ pub fn default_make_avl_element(n: usize) -> Vec<usize> {
 fn main() {
     run(1_000_000);
     run(5_000_000);
-    //    run(10_000_000);
+    run(10_000_000);
 }
 
 fn run(max_num: usize) {
@@ -41,7 +28,7 @@ fn run(max_num: usize) {
 
 fn test_stl_hash_map(max_num: usize, v: &Vec<usize>) {
     println!("\ntest stl hash map");
-    let mut map = STLHashMap::with_hasher(State {});
+    let mut map = STLHashMap::new();
     map.reserve(max_num);
     let start = time::now();
     for i in v {
@@ -72,7 +59,7 @@ fn test_stl_hash_map(max_num: usize, v: &Vec<usize>) {
 
 fn test_hash_avl_map(max_num: usize, v: &Vec<usize>) {
     println!("\ntest hash avl map");
-    let mut map = hash_map::HashMap::with_hasher(State {});
+    let mut map = hash_map::HashMap::new();
     map.reserve(max_num);
     let start = time::now();
     for i in v {
