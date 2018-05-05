@@ -1,4 +1,4 @@
-use std::alloc::{Alloc, Global, Layout};
+use std::alloc::{Alloc, Global, Layout, oom};
 use std::{cmp, mem};
 use std::ptr::NonNull;
 
@@ -191,7 +191,7 @@ impl FastbinPtrOperation for *mut Fastbin {
                     self.page_size(),
                     self.align(),
                 ))
-                .unwrap_or_else(|_| Global.oom())
+                .unwrap_or_else(|_| oom())
                 .cast()
                 .as_ptr();
             let mut line_ptr = page;

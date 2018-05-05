@@ -7,7 +7,7 @@ use list::{ListHead, ListHeadPtr, ListHeadPtrFn};
 use std::hash::Hash;
 use std::hash::BuildHasher;
 use std::hash::Hasher;
-use std::alloc::{Alloc, CollectionAllocErr, Global, Layout};
+use std::alloc::{Alloc, CollectionAllocErr, Global, Layout, oom};
 use std::cmp;
 use std::borrow::Borrow;
 use std::cmp::Ordering;
@@ -300,7 +300,7 @@ where
         }
         let buffer = match unsafe { try_alloc_hash_index(need) } {
             Err(CollectionAllocErr::CapacityOverflow) => panic!("capacity overflow"),
-            Err(CollectionAllocErr::AllocErr) => Global.oom(),
+            Err(CollectionAllocErr::AllocErr) => oom(),
             Ok(buffer) => buffer,
         };
         let data_ptr = self.hash_swap(buffer, need);
