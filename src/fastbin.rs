@@ -39,7 +39,11 @@ impl Fastbin {
 
     pub fn new_with_parameter(obj_size: usize, page_obj_cnt: usize, maximum: usize) -> Self {
         let mut fastbin = Default::default();
-        (&mut fastbin as FastbinPtr).fastbin_init(cmp::max(1, obj_size), page_obj_cnt, maximum);
+        (&mut fastbin as FastbinPtr).fastbin_init(
+            cmp::max(mem::size_of::<VoidPtr>(), obj_size),
+            page_obj_cnt,
+            maximum,
+        );
         fastbin
     }
 
@@ -142,8 +146,9 @@ impl FastbinPtrOperation for *mut Fastbin {
         self.set_next(VOID_PTR_NULL);
         self.set_pages(VOID_PTR_NULL);
         self.set_obj_size(round_up_to_next(obj_size, align));
-        let need = self.obj_size() * page_obj_cnt + mem::size_of::<VoidPtr>()
-            + mem::size_of::<VoidPtr>() + mem::size_of::<usize>() + 16;
+        let mut need =
+            self.obj_size() * page_obj_cnt + mem::size_of::<VoidPtr>() + mem::size_of::<usize>();
+        need = round_up_to_next(need, align);
         self.set_page_size(1usize << 5);
         while self.page_size() < need {
             self.set_page_size(self.page_size() * 2);
@@ -195,7 +200,7 @@ impl FastbinPtrOperation for *mut Fastbin {
             self.set_pages(page);
             line_ptr = round_up_to_next(
                 line_ptr as usize + mem::size_of::<VoidPtr>() + mem::size_of::<usize>(),
-                16,
+                self.align(),
             ) as VoidPtr;
             self.set_start(line_ptr);
             self.set_end(page.offset(self.page_size() as isize));
