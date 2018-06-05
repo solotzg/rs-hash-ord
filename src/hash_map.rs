@@ -163,7 +163,7 @@ use self::fnv::FnvBuildHasher as RandomState;
 ///      ("Denmark", 50),
 ///      ("Iceland", 10)]
 ///      .iter().cloned().collect();
-///
+/// ```
 pub struct HashMap<K, V, S = RandomState> {
     entry_fastbin: Fastbin,
     kv_fastbin: Fastbin,

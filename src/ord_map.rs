@@ -321,7 +321,7 @@ where
 ///      ("Denmark", 50),
 ///      ("Iceland", 10)]
 ///      .iter().cloned().collect();
-///
+/// ```
 pub struct OrdMap<K, V> {
     root: AVLRoot,
     count: usize,

@@ -1,4 +1,5 @@
 # OrdMap & HashMap
+[![Build Status](https://travis-ci.org/solotzg/rs-hash-ord.svg?branch=master)](https://travis-ci.org/solotzg/rs-hash-ord) [![Crates.io](https://img.shields.io/crates/v/hash_ord.svg)](https://crates.io/crates/hash_ord)
 * AVL is not worse than RBTree and is also a feasible way to resolve Hash Collision Attack.
 * This package exposes two public structs: `OrdMap` which implemented by optimized AVL, `HashMap` whose every index contains an AVL-Tree.
 * To improve performance, raw pointer is used frequently. Because Rust uses a similar memory model to C/C++, two classic macros
