@@ -1,7 +1,4 @@
-#![feature(allocator_api)]
 #![allow(dead_code)]
-#![feature(collections_range)]
-#![feature(try_reserve)]
 #![feature(libc)]
 
 extern crate libc;

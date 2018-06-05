@@ -1,6 +1,6 @@
 [package]
 name = "hash_ord"
-version = "0.1.8"
+version = "0.1.9"
 authors = ["Tong Zhigao <solotzg@gmail.com>"]
 description = "A rust lib contains OrdMap(avl tree) and HashMap(use avl to resolve collision);"
 readme = "README.md"
