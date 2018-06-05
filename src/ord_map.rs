@@ -7,8 +7,8 @@ use avl_node;
 use fastbin::{Fastbin, VoidPtr};
 use std::borrow::Borrow;
 
-use std::collections::range::RangeArgument;
 use std::collections::Bound::{Excluded, Included, Unbounded};
+use std::ops::RangeBounds;
 
 struct AVLEntry<K, V> {
     node: AVLNode,
@@ -746,9 +746,9 @@ where
     where
         T: Ord,
         K: Borrow<T>,
-        R: RangeArgument<T>,
+        R: RangeBounds<T>,
     {
-        match (range.start(), range.end()) {
+        match (range.start_bound(), range.end_bound()) {
             (Excluded(s), Excluded(e)) if s == e => {
                 panic!("range start and end are equal and excluded in OrdMap")
             }
@@ -761,12 +761,12 @@ where
             }
             _ => {}
         };
-        let front = match range.start() {
+        let front = match range.start_bound() {
             Included(s) => self.lower_bound_find_node(&s),
             Excluded(s) => self.upper_bound_find_node(&s),
             Unbounded => self.first_node(),
         };
-        let back = match range.end() {
+        let back = match range.end_bound() {
             Included(s) => self.upper_bound_find_node(&s),
             Excluded(s) => self.lower_bound_find_node(&s),
             Unbounded => ptr::null_mut(),
@@ -807,7 +807,7 @@ where
     where
         T: Ord,
         K: Borrow<T>,
-        R: RangeArgument<T>,
+        R: RangeBounds<T>,
     {
         let (front, back, end) = self.inner_range(range);
         Range {
@@ -851,7 +851,7 @@ where
     where
         T: Ord,
         K: Borrow<T>,
-        R: RangeArgument<T>,
+        R: RangeBounds<T>,
     {
         let (front, back, end) = self.inner_range(range);
         RangeMut {

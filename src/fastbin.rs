@@ -1,6 +1,5 @@
-use std::alloc::{Alloc, Global, Layout, oom};
+use libc::{c_void, free, malloc};
 use std::{cmp, mem};
-use std::ptr::NonNull;
 
 pub type VoidPtr = *mut u8;
 
@@ -98,18 +97,6 @@ fn set_page_next(ptr: VoidPtr, data: VoidPtr) {
     unsafe { *(ptr as *mut VoidPtr) = data }
 }
 
-#[inline]
-fn get_page_size(ptr: VoidPtr) -> usize {
-    unsafe { *(ptr.offset(mem::size_of::<VoidPtr>() as isize) as *mut usize) }
-}
-
-#[inline]
-fn set_page_size(ptr: VoidPtr, size: usize) {
-    unsafe {
-        *(ptr.offset(mem::size_of::<VoidPtr>() as isize) as *mut usize) = size;
-    }
-}
-
 trait FastbinPtrBase {
     fn start(self) -> VoidPtr;
     fn set_start(self, start: VoidPtr);
@@ -162,13 +149,9 @@ impl FastbinPtrOperation for *mut Fastbin {
         while !self.pages().is_null() {
             let page = self.pages();
             let next = get_page_next(page);
-            let page_size = get_page_size(page);
             self.set_pages(next);
             unsafe {
-                Global.dealloc(
-                    NonNull::new_unchecked(page).as_opaque(),
-                    Layout::from_size_align_unchecked(page_size, self.align()),
-                );
+                free(page as *mut c_void);
             }
         }
         self.set_start(VOID_PTR_NULL);
@@ -186,22 +169,15 @@ impl FastbinPtrOperation for *mut Fastbin {
             return obj;
         }
         if self.start().offset(obj_size) > self.end() {
-            let page = Global
-                .alloc(Layout::from_size_align_unchecked(
-                    self.page_size(),
-                    self.align(),
-                ))
-                .unwrap_or_else(|_| oom())
-                .cast()
-                .as_ptr();
+            let page = malloc(self.page_size()) as VoidPtr;
+            if page.is_null() {
+                panic!("memory overflow");
+            }
             let mut line_ptr = page;
             set_page_next(page, self.pages());
-            set_page_size(page, self.page_size());
             self.set_pages(page);
-            line_ptr = round_up_to_next(
-                line_ptr as usize + mem::size_of::<VoidPtr>() + mem::size_of::<usize>(),
-                self.align(),
-            ) as VoidPtr;
+            line_ptr = round_up_to_next(line_ptr as usize + mem::size_of::<VoidPtr>(), self.align())
+                as VoidPtr;
             self.set_start(line_ptr);
             self.set_end(page.offset(self.page_size() as isize));
             if self.page_size() < self.maximum() {
@@ -378,25 +354,5 @@ mod test {
         fb.del(c);
         assert_eq!(fastbin::get_page_next(c), b);
         assert_eq!(fb.next, c);
-    }
-
-    #[test]
-    fn test_fastbin_destroy() {
-        struct Node {
-            a: u8,
-        }
-        let mut fb = Fastbin::new(mem::size_of::<Node>());
-        for _ in 0..150 {
-            fb.alloc();
-        }
-        let mut v = Vec::new();
-        let mut page = fb.pages;
-        while !page.is_null() {
-            let next = fastbin::get_page_next(page);
-            let page_size = fastbin::get_page_size(page);
-            v.push(page_size);
-            page = next;
-        }
-        assert_eq!(v[0], v[1] * 2);
     }
 }

@@ -7,11 +7,10 @@ use list::{ListHead, ListHeadPtr, ListHeadPtrFn};
 use std::hash::Hash;
 use std::hash::BuildHasher;
 use std::hash::Hasher;
-use std::alloc::{Alloc, CollectionAllocErr, Global, Layout, oom};
 use std::cmp;
 use std::borrow::Borrow;
 use std::cmp::Ordering;
-use std::ptr::NonNull;
+use libc::{c_void, free, malloc};
 
 pub type HashUint = usize;
 
@@ -298,21 +297,21 @@ where
         while need < limit {
             need = need.saturating_mul(2usize);
         }
-        let buffer = match unsafe { try_alloc_hash_index(need) } {
-            Err(CollectionAllocErr::CapacityOverflow) => panic!("capacity overflow"),
-            Err(CollectionAllocErr::AllocErr) => oom(),
-            Ok(buffer) => buffer,
+        let buffer = unsafe {
+            let (new_alloc_size, oflo) = need.overflowing_mul(mem::size_of::<HashIndex>());
+            if oflo {
+                panic!("capacity overflow");
+            }
+            let buffer = malloc(new_alloc_size) as *mut HashIndex;
+            if buffer.is_null() {
+                panic!("memory overflow");
+            }
+            buffer
         };
         let data_ptr = self.hash_swap(buffer, need);
         if !data_ptr.is_null() {
             unsafe {
-                Global.dealloc(
-                    NonNull::new_unchecked(data_ptr).as_opaque(),
-                    Layout::from_size_align_unchecked(
-                        old_index_size * mem::size_of::<HashIndex>(),
-                        mem::align_of::<HashIndex>(),
-                    ),
-                );
+                free(data_ptr as *mut c_void);
             }
         }
     }
@@ -322,18 +321,6 @@ where
         hash_table.init();
         hash_table
     }
-}
-
-unsafe fn try_alloc_hash_index(capacity: usize) -> Result<*mut HashIndex, CollectionAllocErr> {
-    let (new_alloc_size, oflo) = capacity.overflowing_mul(mem::size_of::<HashIndex>());
-    if oflo {
-        return Err(CollectionAllocErr::CapacityOverflow);
-    }
-    let buffer = Global.alloc(Layout::from_size_align(
-        new_alloc_size,
-        mem::align_of::<HashIndex>(),
-    ).map_err(|_| CollectionAllocErr::CapacityOverflow)?)?;
-    Ok(buffer.cast().as_ptr() as *mut HashIndex)
 }
 
 impl<K, V> HashTable<K, V> {
@@ -562,13 +549,7 @@ impl<K, V> Drop for HashTable<K, V> {
     fn drop(&mut self) {
         if self.index != self.init.as_mut_ptr() {
             unsafe {
-                Global.dealloc(
-                    NonNull::new_unchecked(self.index).as_opaque(),
-                    Layout::from_size_align_unchecked(
-                        self.index_size * mem::size_of::<HashIndex>(),
-                        mem::align_of::<HashIndex>(),
-                    ),
-                );
+                free(self.index as *mut c_void);
             }
         }
     }

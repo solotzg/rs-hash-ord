@@ -2,7 +2,9 @@
 #![allow(dead_code)]
 #![feature(collections_range)]
 #![feature(try_reserve)]
+#![feature(libc)]
 
+extern crate libc;
 #[macro_use]
 mod macros;
 pub mod ord_map;
