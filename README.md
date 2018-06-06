@@ -148,3 +148,8 @@ find 10000, time PT0.079600027S
 remove time PT0.089153558S
 --------------------------------
 ```
+
+# Change Logs
+* version `0.1.9`
+  - Because rust nightly change alloc api too frequently, use `libc::{malloc, free}` instead; 
+  - Use stable `ops::RangeBounds`(stable since = "1.28.0") instead of `collections::range::RangeArgument`;
