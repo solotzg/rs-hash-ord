@@ -468,14 +468,14 @@ pub unsafe fn avl_node_replace(tar: AVLNodePtr, new_node: AVLNodePtr, root: AVLR
 }
 
 #[inline]
-pub unsafe fn avl_node_tear(root: &mut AVLRoot, cur: *mut AVLNodePtr) -> AVLNodePtr {
-    if cur.is_null() {
-        if (*root).node.is_null() {
-            *cur = ptr::null_mut();
+pub unsafe fn avl_node_tear(root: &mut AVLRoot, next: *mut AVLNodePtr) -> AVLNodePtr {
+    let mut node = *next;
+    if node.is_null() {
+        if root.node.is_null() {
             return ptr::null_mut();
         }
+        node = root.node;
     }
-    let mut node = (*root).node;
     loop {
         if node.left().not_null() {
             node = node.left();
@@ -486,7 +486,7 @@ pub unsafe fn avl_node_tear(root: &mut AVLRoot, cur: *mut AVLNodePtr) -> AVLNode
         }
     }
     let parent = node.parent();
-    *cur = parent;
+    *next = parent;
     if parent.not_null() {
         if parent.left() == node {
             parent.set_left(ptr::null_mut());
@@ -495,7 +495,7 @@ pub unsafe fn avl_node_tear(root: &mut AVLRoot, cur: *mut AVLNodePtr) -> AVLNode
         }
         node.set_height(0);
     } else {
-        (*root).node = ptr::null_mut();
+        root.node = ptr::null_mut();
     }
     node
 }

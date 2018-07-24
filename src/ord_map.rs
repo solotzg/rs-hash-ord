@@ -1869,7 +1869,7 @@ where
     K: Ord,
 {
     root: AVLRoot,
-    head: AVLNodePtr,
+    next: AVLNodePtr,
     len: usize,
     entry_fastbin: Fastbin,
     _marker: marker::PhantomData<(K, V)>,
@@ -2010,7 +2010,7 @@ where
             return None;
         }
         let node =
-            unsafe { avl_node::avl_node_tear(&mut self.root, &mut self.head as *mut AVLNodePtr) };
+            unsafe { avl_node::avl_node_tear(&mut self.root, &mut self.next as *mut AVLNodePtr) };
         self.len -= 1;
         let old_entry = node.avl_node_deref_to_entry::<K, V>();
         let res = unsafe { Some((ptr::read(old_entry.key()), ptr::read(old_entry.value()))) };
@@ -2034,7 +2034,7 @@ where
     fn into_iter(mut self) -> IntoIter<K, V> {
         let res = IntoIter {
             root: self.root,
-            head: ptr::null_mut(),
+            next: ptr::null_mut(),
             len: self.len(),
             entry_fastbin: self.entry_fastbin.move_to(),
             _marker: marker::PhantomData,
