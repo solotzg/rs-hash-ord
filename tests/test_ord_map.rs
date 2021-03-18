@@ -2,7 +2,7 @@ extern crate hash_ord;
 extern crate rand;
 
 use hash_ord::ord_map::OrdMap;
-use std::collections::Bound::{Excluded, Included, Unbounded};
+use std::ops::Bound::{Excluded, Included, Unbounded};
 use std::cell::RefCell;
 use hash_ord::ord_map::Entry::Vacant;
 use hash_ord::ord_map::Entry::Occupied;
