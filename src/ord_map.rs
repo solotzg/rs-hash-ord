@@ -7,7 +7,7 @@ use avl_node;
 use fastbin::{Fastbin, VoidPtr};
 use std::borrow::Borrow;
 
-use std::collections::Bound::{Excluded, Included, Unbounded};
+use std::ops::Bound::{Excluded, Included, Unbounded};
 use std::ops::RangeBounds;
 
 struct AVLEntry<K, V> {
@@ -792,7 +792,7 @@ where
     ///
     /// ```
     /// use hash_ord::ord_map::OrdMap;
-    /// use std::collections::Bound::Included;
+    /// use std::ops::Bound::Included;
     ///
     /// let mut map = OrdMap::new();
     /// map.insert(3, "a");
